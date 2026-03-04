@@ -1,0 +1,31 @@
+[package]
+name = "friction"
+version = "0.1.0"
+description = "Disagreement engine for AI-assisted code"
+authors = ["Friction"]
+license = "MIT"
+repository = "https://github.com/friction-labs/friction"
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "6"
+dotenvy = "0.15"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+rusqlite = { version = "0.33", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+tokio = { version = "1", features = ["macros", "process", "rt-multi-thread", "time"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+serial_test = "3"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

@@ -1,0 +1,2224 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap");
+@import "@assistant-ui/react-ui/styles/index.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Light theme (default) ─────────────────────────────────────── */
+:root,
+[data-theme=light] {
+  --friction-bg: #f0f0f0;
+  --friction-surface: #ffffff;
+  --friction-surface-alt: #f7f7f7;
+  --friction-sidebar: #fafafa;
+  --friction-border: #e4e4e4;
+  --friction-text: #111111;
+  --friction-muted: #767676;
+  --friction-accent: #111111;
+  --friction-accent-soft: #f0f0f0;
+  --friction-accent-text: #111111;
+  --friction-success-soft: #f0fdf4;
+  --friction-success-text: #166534;
+  --friction-warning-soft: #fffbeb;
+  --friction-warning-text: #92400e;
+  --friction-danger-soft: #fef2f2;
+  --friction-danger-text: #991b1b;
+  --friction-danger: #dc2626;
+
+  --ring-color: transparent;
+  --shadow-soft: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-dialog: 0 8px 30px rgba(0, 0, 0, 0.12);
+  --background: var(--friction-surface);
+  --foreground: var(--friction-text);
+  --card: var(--friction-surface);
+  --card-foreground: var(--friction-text);
+  --popover: var(--friction-surface);
+  --popover-foreground: var(--friction-text);
+  --muted: var(--friction-surface-alt);
+  --muted-foreground: var(--friction-muted);
+  --border: var(--friction-border);
+  --input: var(--friction-border);
+  --ring: transparent;
+  --accent: var(--friction-surface-alt);
+  --accent-foreground: var(--friction-text);
+  --primary: var(--friction-text);
+  --primary-foreground: var(--friction-surface);
+  color-scheme: light;
+}
+
+/* ─── Dark theme ────────────────────────────────────────────────── */
+[data-theme=dark] {
+  --friction-bg: #0c0c0c;
+  --friction-surface: #161616;
+  --friction-surface-alt: #1e1e1e;
+  --friction-sidebar: #121212;
+  --friction-border: #2c2c2c;
+  --friction-text: #ebebeb;
+  --friction-muted: #6b6b6b;
+  --friction-accent: #ebebeb;
+  --friction-accent-soft: #242424;
+  --friction-accent-text: #ebebeb;
+  --friction-success-soft: #052e16;
+  --friction-success-text: #86efac;
+  --friction-warning-soft: #1c1400;
+  --friction-warning-text: #fcd34d;
+  --friction-danger-soft: #1a0505;
+  --friction-danger-text: #fca5a5;
+  --friction-danger: #f87171;
+  --ring-color: transparent;
+  --shadow-soft: 0 1px 4px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-dialog: 0 12px 40px rgba(0, 0, 0, 0.7);
+  --background: var(--friction-surface);
+  --foreground: var(--friction-text);
+  --card: var(--friction-surface);
+  --card-foreground: var(--friction-text);
+  --popover: var(--friction-surface);
+  --popover-foreground: var(--friction-text);
+  --muted: var(--friction-surface-alt);
+  --muted-foreground: var(--friction-muted);
+  --border: var(--friction-border);
+  --input: var(--friction-border);
+  --ring: transparent;
+  --accent: var(--friction-surface-alt);
+  --accent-foreground: var(--friction-text);
+  --primary: var(--friction-text);
+  --primary-foreground: var(--friction-surface);
+  color-scheme: dark;
+}
+
+/* ─── Base resets ───────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Remove ALL focus outlines — we rely on visual affordances only */
+*:focus {
+  outline: none !important;
+}
+
+*:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  min-height: 100%;
+}
+
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-variant-numeric: tabular-nums;
+  color: var(--friction-text);
+  background: var(--friction-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+}
+
+textarea,
+input,
+button,
+label,
+a {
+  touch-action: manipulation;
+}
+
+input,
+textarea,
+select {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+select {
+  background-color: var(--friction-surface-alt);
+  color: var(--friction-text);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  text-wrap: balance;
+  scroll-margin-top: 72px;
+}
+
+p,
+li,
+dd,
+dt {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+kbd {
+  border: 1px solid var(--friction-border);
+  background: var(--friction-surface-alt);
+  border-radius: 4px;
+  padding: 0 0.3rem;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ─── Keyframes ─────────────────────────────────────────────────── */
+@keyframes shimmer {
+  0% {
+    background-position: -400px 0;
+  }
+
+  100% {
+    background-position: 400px 0;
+  }
+}
+
+@layer components {
+
+  /* ── Accessibility ──────────────────────────────────────────── */
+  .skip-link {
+    @apply sr-only focus:not-sr-only fixed left-4 top-4 z-[90] rounded px-3 py-1.5 text-sm font-semibold;
+    background: var(--friction-text);
+    color: var(--friction-surface);
+  }
+
+  /* ── Theme toggle ─────────────────────────────────────────────── */
+  .theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 7px;
+    border: 1px solid var(--friction-border);
+    background: transparent;
+    color: var(--friction-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  }
+
+  .theme-toggle:hover {
+    background: var(--friction-surface-alt);
+    color: var(--friction-text);
+    border-color: var(--friction-text);
+  }
+
+  .theme-toggle:focus {
+    outline: none !important;
+  }
+
+  /* ── Layout ──────────────────────────────────────────────────── */
+  .friction-modern-layout {
+    display: flex;
+    height: 100dvh;
+    width: 100%;
+    gap: 8px;
+    padding: 8px;
+    background: var(--friction-bg);
+  }
+
+  /* ── Sidebar ─────────────────────────────────────────────────── */
+  .friction-modern-sidebar {
+    display: none;
+    flex-direction: column;
+    flex: none;
+    width: 220px;
+    border-radius: 12px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-sidebar);
+    padding: 10px;
+    box-shadow: var(--shadow-soft);
+    overflow: hidden;
+    transition: width 200ms cubic-bezier(0.4, 0, 0.2, 1),
+      opacity 160ms ease,
+      padding 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  @media (min-width: 768px) {
+    .friction-modern-sidebar {
+      display: flex;
+    }
+  }
+
+  .friction-modern-sidebar.is-collapsed {
+    width: 0;
+    padding: 0;
+    opacity: 0;
+    border-width: 0;
+    box-shadow: none;
+    overflow: hidden;
+  }
+
+  .friction-modern-sidebar-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-bottom: 10px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--friction-border);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  .friction-sidebar-logo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background: var(--friction-text);
+    color: var(--friction-surface);
+    flex-shrink: 0;
+  }
+
+  .friction-sidebar-wordmark {
+    font-family: "Inter", sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--friction-text);
+    letter-spacing: -0.02em;
+  }
+
+  .friction-modern-sidebar-body {
+    min-height: 0;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .friction-modern-sidebar-footer {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--friction-border);
+    display: grid;
+    gap: 2px;
+  }
+
+  /* ── Main panel ──────────────────────────────────────────────── */
+  .friction-modern-main {
+    min-width: 0;
+    flex: 1;
+    border-radius: 12px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: var(--shadow-soft);
+    overflow: hidden;
+  }
+
+  /* ── Header ──────────────────────────────────────────────────── */
+  .friction-modern-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 10px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--friction-border);
+    flex-shrink: 0;
+  }
+
+  .friction-modern-header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .friction-modern-header-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .friction-modern-title {
+    font-family: "Inter", sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--friction-text);
+    letter-spacing: -0.02em;
+  }
+
+  .friction-modern-subtitle {
+    font-size: 11px;
+    color: var(--friction-muted);
+  }
+
+  .friction-modern-sidebar-toggle {
+    display: none;
+  }
+
+  @media (min-width: 768px) {
+    .friction-modern-sidebar-toggle {
+      display: inline-flex;
+    }
+  }
+
+  .friction-modern-body {
+    min-height: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Thread list (assistant-ui overrides) ────────────────────── */
+  .friction-threadlist-sidebar .aui-thread-list-root {
+    height: 100%;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    border-radius: 0;
+  }
+
+  .friction-threadlist-sidebar .aui-thread-list-new {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+    width: 100%;
+    margin-bottom: 6px;
+    padding: 6px 8px;
+    font-size: 11.5px;
+    font-weight: 600;
+    border-radius: 7px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface);
+    color: var(--friction-text);
+    cursor: pointer;
+    transition: background 120ms ease;
+  }
+
+  .friction-threadlist-sidebar .aui-thread-list-new:hover {
+    background: var(--friction-surface-alt);
+  }
+
+  .friction-threadlist-sidebar .aui-thread-list-item {
+    border-radius: 7px;
+    border: 1px solid transparent;
+    background: transparent;
+    transition: background 120ms ease;
+  }
+
+  .friction-threadlist-sidebar .aui-thread-list-item:hover {
+    background: var(--friction-surface-alt);
+  }
+
+  .friction-threadlist-sidebar .aui-thread-list-item[data-active] {
+    border-color: var(--friction-border);
+    background: var(--friction-surface);
+  }
+
+  .friction-threadlist-sidebar .aui-thread-list-item-title {
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--friction-text);
+  }
+
+  .friction-threadlist-sidebar .aui-thread-list-item-trigger {
+    padding: 6px 8px;
+  }
+
+  .friction-threadlist-sidebar .aui-thread-list-item-archive {
+    opacity: 1;
+  }
+
+  /* ── Thread surface (aui Thread component overrides) ─────────── */
+  .friction-thread-surface {
+    border-radius: 10px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface-alt);
+    padding: 6px;
+    overflow: hidden;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .friction-thread-surface-modern {
+    border-color: var(--friction-border);
+    background: var(--friction-surface);
+  }
+
+  .friction-thread-surface .aui-thread-root {
+    flex: 1;
+    background: transparent;
+    border: none;
+  }
+
+  .friction-thread-surface .aui-thread-viewport {
+    flex: 1;
+  }
+
+  /* aui user/assistant message bubble overrides */
+  .aui-root .aui-user-message-content {
+    background: var(--friction-text) !important;
+    color: var(--friction-surface) !important;
+    border-radius: 14px 14px 3px 14px;
+  }
+
+  .aui-root .aui-assistant-message-content {
+    background: var(--friction-surface-alt) !important;
+    border: 1px solid var(--friction-border);
+    border-radius: 3px 14px 14px 14px;
+  }
+
+  /* ── Chat layout ─────────────────────────────────────────────── */
+  .workflow-chat-layout {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    gap: 10px;
+    overflow: hidden;
+  }
+
+  .workflow-chat-layout>.chat-shell {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .chat-shell {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .chat-rail {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--friction-border);
+    flex-shrink: 0;
+  }
+
+  .chat-scroll {
+    min-height: 0;
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 0;
+    overscroll-behavior: contain;
+  }
+
+  .chat-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 100%;
+  }
+
+  /* ── Message bubbles ─────────────────────────────────────────── */
+  .chat-message-wrap {
+    display: flex;
+  }
+
+  .chat-message-wrap-user {
+    justify-content: flex-end;
+  }
+
+  .chat-message {
+    max-width: min(85%, 850px);
+    border-radius: 12px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface-alt);
+    padding: 9px 13px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--friction-text);
+  }
+
+  /* User bubble — solid, right-aligned */
+  .chat-message-wrap-user .chat-message {
+    background: var(--friction-text);
+    border-color: transparent;
+    color: var(--friction-surface);
+    border-radius: 12px 12px 3px 12px;
+  }
+
+  /* Assistant bubble — light surface, left-aligned */
+  .chat-message-wrap:not(.chat-message-wrap-user) .chat-message {
+    border-radius: 3px 12px 12px 12px;
+    max-width: min(90%, 900px);
+  }
+
+  .chat-message-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 5px;
+  }
+
+  .chat-message-wrap-user .chat-message-head {
+    display: none;
+  }
+
+  .chat-message-text {
+    font-size: 13px;
+    line-height: 1.6;
+    color: inherit;
+    white-space: pre-line;
+    margin: 0;
+  }
+
+  /* Status — left accent strip */
+  .chat-message-wrap.is-status {
+    padding-left: 2px;
+  }
+
+  .chat-message-wrap.is-status .chat-message {
+    background: transparent;
+    border: none;
+    border-left: 2px solid var(--friction-border);
+    border-radius: 0;
+    padding: 2px 10px;
+    font-size: 11.5px;
+    color: var(--friction-muted);
+    max-width: 100%;
+  }
+
+  /* Error */
+  .chat-message-wrap.is-error .chat-message {
+    background: var(--friction-danger-soft);
+    border-color: var(--friction-danger);
+    border-radius: 8px;
+    color: var(--friction-danger-text);
+    font-size: 12.5px;
+  }
+
+  .chat-tool-card {
+    max-width: min(88%, 800px);
+    border-radius: 10px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface-alt);
+    padding: 9px 13px;
+  }
+
+  .chat-task-card {
+    max-width: min(88%, 800px);
+    border-radius: 10px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface);
+    padding: 10px 13px;
+  }
+
+  .chat-chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    border-radius: 100px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface-alt);
+    padding: 0 12px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--friction-text);
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+
+  .chat-chip:hover {
+    background: var(--friction-surface);
+    border-color: var(--friction-text);
+  }
+
+  .chat-collapsible-card {
+    max-width: min(88%, 800px);
+    border-radius: 10px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface);
+    overflow: hidden;
+  }
+
+  .chat-collapsible-summary {
+    display: flex;
+    cursor: pointer;
+    list-style: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 9px 13px;
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .chat-collapsible-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .chat-collapsible-card[open] .chat-collapsible-icon {
+    transform: rotate(90deg);
+  }
+
+  .chat-collapsible-content {
+    border-top: 1px solid var(--friction-border);
+    padding: 10px 13px;
+  }
+
+  /* ── Task Rail (workflow stepper) ────────────────────────────── */
+  .task-rail {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* ── Shimmer ─────────────────────────────────────────────────── */
+  .chat-shimmer {
+    max-width: min(88%, 800px);
+    border-radius: 10px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface);
+    padding: 10px 13px;
+  }
+
+  .shimmer-bar {
+    height: 10px;
+    border-radius: 5px;
+    background: linear-gradient(90deg, var(--friction-surface-alt) 25%, var(--friction-border) 50%, var(--friction-surface-alt) 75%);
+    background-size: 800px 100%;
+    animation: shimmer 1.6s infinite;
+  }
+
+  /* ── Composer / Prompt area ──────────────────────────────────── */
+  .chat-composer-wrap {
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+    margin-top: 6px;
+    padding-top: 10px;
+    background: var(--friction-surface);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .chat-composer-accessory {
+    border-radius: 10px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface-alt);
+    padding: 8px;
+    max-height: min(42vh, 340px);
+    overflow-y: auto;
+  }
+
+  /* ── Prompt card (ai-elements wrapper) ───────────────────────── */
+  .prompt-card {
+    width: 100%;
+    border-radius: 12px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface-alt);
+    transition: border-color 120ms ease;
+  }
+
+  .prompt-card-ai-elements {
+    overflow: hidden;
+  }
+
+  .prompt-card:focus-within {
+    border-color: var(--friction-text);
+  }
+
+  .prompt-card-textarea {
+    display: block;
+    width: 100%;
+    resize: none;
+    background: transparent;
+    padding: 12px 14px 8px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--friction-text);
+    outline: none !important;
+    box-shadow: none !important;
+    min-height: 3rem;
+    max-height: 12rem;
+    overflow-y: auto;
+  }
+
+  .prompt-card-textarea::placeholder {
+    color: var(--friction-muted);
+  }
+
+  .prompt-card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 8px 8px;
+  }
+
+  .prompt-card-hint {
+    font-size: 11px;
+    color: var(--friction-muted);
+    user-select: none;
+  }
+
+  .prompt-card-submit {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    border: none;
+    background: var(--friction-text);
+    color: var(--friction-surface);
+    flex-shrink: 0;
+    cursor: pointer;
+    transition: opacity 120ms ease;
+  }
+
+  .prompt-card-submit:disabled {
+    opacity: 0.25;
+    cursor: not-allowed;
+  }
+
+  .prompt-card-submit:not(:disabled):hover {
+    opacity: 0.75;
+  }
+
+  .prompt-card-submit:focus {
+    outline: none !important;
+  }
+
+  /* ── Workflow agent chips ─────────────────────────────────────── */
+  .workflow-agent-header {
+    border-bottom: 1px solid var(--friction-border);
+    background: var(--friction-surface);
+    padding: 7px 10px;
+  }
+
+  .workflow-agent-chip-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+  }
+
+  .workflow-agent-chip-wrap {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+
+  .workflow-agent-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 30px;
+    border-radius: 8px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface-alt);
+    padding: 0 9px;
+    font-size: 11.5px;
+    color: var(--friction-text);
+    cursor: pointer;
+    max-width: min(60vw, 260px);
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+
+  .workflow-agent-chip:hover {
+    border-color: var(--friction-text);
+    background: var(--friction-surface);
+  }
+
+  .workflow-agent-chip.is-active {
+    border-color: var(--friction-text);
+    background: var(--friction-surface);
+    box-shadow: 0 0 0 1px var(--friction-text);
+  }
+
+  .workflow-agent-chip-label {
+    font-weight: 600;
+  }
+
+  .workflow-agent-chip-sep {
+    color: var(--friction-muted);
+  }
+
+  .workflow-agent-chip-model {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--friction-muted);
+  }
+
+  .workflow-agent-chip-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface-alt);
+    color: var(--friction-muted);
+    flex-shrink: 0;
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  }
+
+  .workflow-agent-chip-remove:hover {
+    border-color: var(--friction-danger);
+    background: var(--friction-danger-soft);
+    color: var(--friction-danger);
+  }
+
+  .workflow-agent-chip-add {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 30px;
+    border-radius: 8px;
+    border: 1px dashed var(--friction-border);
+    background: transparent;
+    padding: 0 9px;
+    font-size: 11.5px;
+    color: var(--friction-muted);
+    cursor: pointer;
+    transition: border-color 120ms ease, color 120ms ease;
+  }
+
+  .workflow-agent-chip-add:hover {
+    border-color: var(--friction-text);
+    color: var(--friction-text);
+  }
+
+  /* ── Workflow footer ─────────────────────────────────────────── */
+  .workflow-prompt-footer {
+    border-top: 1px solid var(--friction-border);
+    background: var(--friction-surface);
+    padding: 7px 10px;
+  }
+
+  .workflow-footer-model-btn {
+    gap: 5px;
+    font-size: 11.5px;
+  }
+
+  .workflow-footer-model-label {
+    font-weight: 600;
+    color: var(--friction-text);
+  }
+
+  .workflow-footer-sep {
+    color: var(--friction-muted);
+  }
+
+  .workflow-footer-model-id {
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--friction-muted);
+  }
+
+  /* ── Workflow model selector modal ───────────────────────────── */
+  .workflow-model-selector-content {
+    width: min(94vw, 680px);
+    max-width: 680px;
+    padding: 0 !important;
+    border-color: var(--friction-border) !important;
+    overflow: hidden;
+    background-color: var(--friction-surface) !important;
+    box-shadow: var(--shadow-dialog) !important;
+    z-index: 9999;
+    border-radius: 12px !important;
+  }
+
+  .workflow-model-selector-content [cmdk-root],
+  .workflow-model-selector-content [data-radix-popper-content-wrapper] {
+    background-color: var(--friction-surface) !important;
+    color: var(--friction-text) !important;
+  }
+
+  .workflow-model-selector-content [cmdk-input-wrapper] {
+    background-color: var(--friction-surface-alt) !important;
+    border-bottom: 1px solid var(--friction-border) !important;
+  }
+
+  .workflow-model-selector-content [cmdk-input] {
+    background: transparent !important;
+    color: var(--friction-text) !important;
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
+  .workflow-model-selector-content [cmdk-list] {
+    max-height: min(48vh, 380px);
+    background-color: var(--friction-surface) !important;
+  }
+
+  .workflow-model-selector-content [cmdk-group-heading] {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--friction-muted);
+    padding: 8px 12px 4px;
+  }
+
+  .workflow-model-selector-content [cmdk-item] {
+    border-radius: 6px;
+    color: var(--friction-text);
+    background-color: var(--friction-surface) !important;
+    font-size: 13px;
+  }
+
+  .workflow-model-selector-content [cmdk-item][aria-selected=true],
+  .workflow-model-selector-content [cmdk-item][data-selected=true] {
+    background-color: var(--friction-surface-alt) !important;
+    color: var(--friction-text);
+  }
+
+  .workflow-model-selector-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    border-bottom: 1px solid var(--friction-border);
+    padding: 10px 14px;
+    background-color: var(--friction-surface) !important;
+  }
+
+  .workflow-model-selector-header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .workflow-model-selector-agent-pills {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex-wrap: wrap;
+  }
+
+  .workflow-model-selector-agent-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border-radius: 6px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface-alt);
+    padding: 3px 7px;
+    font-size: 11.5px;
+    color: var(--friction-muted);
+    cursor: pointer;
+    transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+  }
+
+  .workflow-model-selector-agent-pill:hover {
+    border-color: var(--friction-text);
+    color: var(--friction-text);
+  }
+
+  .workflow-model-selector-agent-pill.is-active {
+    border-color: var(--friction-text);
+    background: var(--friction-surface);
+    font-weight: 600;
+    color: var(--friction-text);
+  }
+
+  .workflow-model-selector-reasons {
+    border-top: 1px solid var(--friction-border);
+    padding: 7px 14px;
+    background-color: var(--friction-surface) !important;
+  }
+
+  .workflow-model-selector-custom {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    border-top: 1px solid var(--friction-border);
+    padding: 9px 14px;
+    background-color: var(--friction-surface-alt) !important;
+  }
+
+  .workflow-model-selector-custom-target {
+    height: 32px;
+    border-radius: 7px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface);
+    padding: 0 9px;
+    font-size: 12px;
+    color: var(--friction-text);
+    width: 120px;
+    outline: none !important;
+  }
+
+  .workflow-model-selector-custom-input {
+    height: 32px;
+    min-width: 0;
+    flex: 1;
+    border-radius: 7px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface);
+    padding: 0 9px;
+    font-size: 12px;
+    color: var(--friction-text);
+    outline: none !important;
+  }
+
+  .workflow-model-selector-custom-input::placeholder {
+    color: var(--friction-muted);
+  }
+
+  .workflow-model-selector-custom-apply {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 32px;
+    flex-shrink: 0;
+    border-radius: 7px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface);
+    padding: 0 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--friction-text);
+    cursor: pointer;
+    transition: background 120ms ease;
+  }
+
+  .workflow-model-selector-custom-apply:hover {
+    background: var(--friction-surface-alt);
+  }
+
+  /* ── Clarification helper ────────────────────────────────────── */
+  .clarification-helper {
+    border-radius: 10px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface);
+    padding: 10px;
+  }
+
+  .clarification-helper-collapsed {
+    margin-top: 8px;
+    border-radius: 8px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface-alt);
+    padding: 7px 10px;
+  }
+
+  .clarification-wizard-progress {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .clarification-wizard-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 22px;
+    min-width: 34px;
+    border-radius: 100px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface-alt);
+    padding: 0 7px;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--friction-muted);
+  }
+
+  .clarification-wizard-chip.is-active,
+  .clarification-wizard-chip.is-done {
+    border-color: var(--friction-text);
+    background: var(--friction-text);
+    color: var(--friction-surface);
+  }
+
+  .clarification-step {
+    margin-top: 8px;
+    border-radius: 8px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface-alt);
+    overflow: hidden;
+  }
+
+  .clarification-step-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    min-height: 40px;
+    padding: 7px 10px;
+    text-align: left;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--friction-text);
+    cursor: pointer;
+    background: transparent;
+    border: none;
+  }
+
+  .clarification-step-body {
+    border-top: 1px solid var(--friction-border);
+    padding: 8px 10px 10px;
+  }
+
+  .clarification-helper-textarea {
+    width: 100%;
+    border-radius: 8px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface);
+    padding: 8px 10px;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--friction-text);
+    max-height: 9rem;
+    overflow-y: auto;
+    resize: vertical;
+    outline: none !important;
+  }
+
+  .clarification-helper-textarea::placeholder {
+    color: var(--friction-muted);
+  }
+
+  .clarification-helper-questions {
+    margin-top: 6px;
+    border-radius: 8px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface);
+    padding: 8px 10px;
+  }
+
+  .clarification-side-panel {
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    width: 340px;
+    flex: none;
+    border-radius: 12px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface-alt);
+    padding: 10px;
+    box-shadow: var(--shadow-soft);
+  }
+
+  @media (min-width: 1280px) {
+    .clarification-side-panel {
+      display: flex;
+    }
+  }
+
+  .clarification-side-panel.is-collapsed {
+    width: 220px;
+  }
+
+  .clarification-side-panel-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  /* ── Forms / Inputs ──────────────────────────────────────────── */
+  .input-base {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-height: 36px;
+    border-radius: 8px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface-alt);
+    padding: 0 10px;
+    font-size: 12.5px;
+    color: var(--friction-text);
+    outline: none !important;
+    box-shadow: none !important;
+    transition: border-color 120ms ease;
+  }
+
+  .input-base:focus {
+    border-color: var(--friction-text);
+  }
+
+  .input-base::placeholder {
+    color: var(--friction-muted);
+  }
+
+  .select-base {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-height: 36px;
+    border-radius: 8px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface-alt);
+    padding: 0 10px;
+    font-size: 12.5px;
+    color: var(--friction-text);
+    outline: none !important;
+  }
+
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+    border-radius: 8px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface-alt);
+    padding: 0 10px;
+    font-size: 12.5px;
+    color: var(--friction-text);
+  }
+
+  .checkbox-row input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    accent-color: var(--friction-text);
+  }
+
+  .prompt-textarea {
+    min-height: 96px;
+    width: 100%;
+    border-radius: 8px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface-alt);
+    padding: 8px 10px;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--friction-text);
+    resize: vertical;
+    outline: none !important;
+  }
+
+  .prompt-textarea::placeholder {
+    color: var(--friction-muted);
+  }
+
+  /* ── Buttons ──────────────────────────────────────────────────── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 120ms ease, background 120ms ease;
+  }
+
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .btn:focus {
+    outline: none !important;
+  }
+
+  .btn-primary {
+    background: var(--friction-text);
+    color: var(--friction-surface);
+    padding: 0 16px;
+    min-height: 34px;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    opacity: 0.8;
+  }
+
+  .btn-ghost {
+    background: transparent;
+    border-color: var(--friction-border);
+    color: var(--friction-text);
+    padding: 0 12px;
+    min-height: 32px;
+  }
+
+  .btn-ghost:hover:not(:disabled) {
+    background: var(--friction-surface-alt);
+    border-color: var(--friction-text);
+  }
+
+  .btn-danger {
+    background: var(--friction-danger-soft);
+    border-color: var(--friction-danger);
+    color: var(--friction-danger-text);
+    padding: 0 12px;
+    min-height: 32px;
+  }
+
+  .btn.is-active {
+    border-color: var(--friction-text);
+    background: var(--friction-surface-alt);
+  }
+
+  /* ── Panel / Card ────────────────────────────────────────────── */
+  .panel-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--friction-muted);
+  }
+
+  .panel-title {
+    font-family: "Inter", sans-serif;
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--friction-text);
+    letter-spacing: -0.02em;
+  }
+
+  .panel-subtitle {
+    margin-top: 3px;
+    font-size: 11px;
+    color: var(--friction-muted);
+  }
+
+  .panel-head {
+    margin-bottom: 14px;
+  }
+
+  .panel-shell {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+    border-radius: 12px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface);
+    padding: 14px;
+    box-shadow: var(--shadow-soft);
+  }
+
+  .card-base {
+    border-radius: 12px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface);
+    box-shadow: var(--shadow-soft);
+    overflow: hidden;
+  }
+
+  .card-header {
+    border-bottom: 1px solid var(--friction-border);
+    padding: 10px 14px;
+  }
+
+  .card-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--friction-text);
+    letter-spacing: -0.01em;
+  }
+
+  .card-content {
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  /* ── Onboarding ───────────────────────────────────────────────── */
+  .onboarding-shell {
+    display: flex;
+    min-height: 100dvh;
+    align-items: center;
+    justify-content: center;
+    background: var(--friction-bg);
+    padding: 20px 16px;
+  }
+
+  .onboarding-panel {
+    width: 100%;
+    max-width: 800px;
+    border-radius: 16px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface);
+    padding: 28px;
+    box-shadow: var(--shadow-dialog);
+  }
+
+  .onboarding-body {
+    margin-top: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .onboarding-grid {
+    display: grid;
+    gap: 10px;
+  }
+
+  @media (min-width: 640px) {
+    .onboarding-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  /* ── Settings / Sessions dialogs ─────────────────────────────── */
+  .settings-dialog-panel {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    z-index: 60;
+    display: flex;
+    width: min(94vw, 680px);
+    max-height: 88vh;
+    transform: translate(-50%, -50%);
+    flex-direction: column;
+    border-radius: 14px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface);
+    padding: 18px;
+    box-shadow: var(--shadow-dialog);
+  }
+
+  .settings-dialog-body {
+    margin-top: 14px;
+    min-height: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow-y: auto;
+    padding-right: 4px;
+    overscroll-behavior: contain;
+  }
+
+  .settings-group {
+    border-radius: 12px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface-alt);
+    padding: 12px;
+  }
+
+  .sessions-drawer-panel {
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 60;
+    display: flex;
+    height: 100dvh;
+    width: min(92vw, 340px);
+    flex-direction: column;
+    border-right: 1px solid var(--friction-border);
+    background: var(--friction-surface);
+    padding: 16px 14px;
+    box-shadow: 8px 0 24px rgba(0, 0, 0, 0.15);
+    overscroll-behavior: contain;
+  }
+
+  .dialog-panel {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    z-index: 60;
+    width: min(92vw, 480px);
+    transform: translate(-50%, -50%);
+    border-radius: 14px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface);
+    padding: 20px;
+    box-shadow: var(--shadow-dialog);
+  }
+
+  /* ── Session rows ────────────────────────────────────────────── */
+  .session-row {
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+    border-radius: 8px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface-alt);
+    padding: 6px;
+    transition: border-color 120ms ease;
+  }
+
+  .session-row-selected {
+    border-color: var(--friction-text);
+    background: var(--friction-surface);
+  }
+
+  .session-row-main {
+    display: flex;
+    min-height: 40px;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 3px;
+    border-radius: 6px;
+    padding: 3px 7px;
+    text-align: left;
+  }
+
+  .sessions-scroll {
+    min-height: 0;
+    flex: 1;
+    overflow: hidden;
+    overscroll-behavior: contain;
+  }
+
+  /* ── Chat config form ────────────────────────────────────────── */
+  .chat-config-grid {
+    display: grid;
+    gap: 7px;
+  }
+
+  @media (min-width: 640px) {
+    .chat-config-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  .chat-config-check {
+    grid-column: 1 / -1;
+  }
+
+  /* ── App shell (legacy) ──────────────────────────────────────── */
+  .app-shell {
+    display: flex;
+    height: 100dvh;
+    width: 100%;
+    flex-direction: column;
+    gap: 14px;
+    padding: 8px;
+    padding-left: max(8px, env(safe-area-inset-left));
+    padding-right: max(8px, env(safe-area-inset-right));
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+
+  @media (min-width: 1024px) {
+    .app-shell {
+      flex-direction: row;
+    }
+  }
+
+  .workflow-shell {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .sessions-sidebar {
+    display: none;
+    overflow: hidden;
+    width: 300px;
+    flex: none;
+  }
+
+  @media (min-width: 1024px) {
+    .sessions-sidebar {
+      display: flex;
+    }
+  }
+
+  .sessions-actions {
+    margin-top: 8px;
+    display: grid;
+    gap: 6px;
+  }
+
+  .assistant-sessions-sidebar {
+    gap: 10px;
+  }
+
+  .assistant-sessions-sidebar .panel-head {
+    margin-bottom: 0;
+  }
+}
+
+@media (max-width: 1279px) {
+  .workflow-chat-layout {
+    flex-direction: column;
+  }
+
+  .clarification-side-panel {
+    display: flex;
+    width: 100%;
+    border-radius: 12px;
+    border: 1px solid var(--friction-border);
+    background: var(--friction-surface-alt);
+    padding: 10px;
+    box-shadow: var(--shadow-soft);
+  }
+
+  .clarification-side-panel.is-collapsed {
+    width: 100%;
+  }
+}
+
+/* ─── Provider logo visibility ────────────────────────────────── */
+/* SVG logos from models.dev are white — need invert in light mode */
+[data-theme=light] img[src*="models.dev/logos"],
+[data-theme=light] .model-logo {
+  filter: invert(0);
+}
+
+[data-theme=dark] img[src*="models.dev/logos"],
+[data-theme=dark] .model-logo {
+  filter: invert(1);
+}
+
+/* ─── Aggressive global focus ring / outline removal ─────────── */
+/* Kill browser default blue outline and Tailwind rings everywhere */
+*,
+*::before,
+*::after,
+*:focus,
+*:focus-visible,
+*:focus-within {
+  outline: none !important;
+  outline-offset: 0 !important;
+}
+
+input,
+textarea,
+button,
+select,
+a,
+[contenteditable],
+[tabindex],
+[role="button"],
+[role="menuitem"],
+[role="option"],
+[role="tab"],
+[role="combobox"],
+[role="listbox"],
+[role="textbox"] {
+  outline: none !important;
+  box-shadow: none !important;
+  -webkit-appearance: none;
+}
+
+input:focus,
+textarea:focus,
+select:focus,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+button:focus,
+button:focus-visible,
+a:focus,
+a:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Radix primitives that receive focus programmatically */
+[data-radix-popper-content-wrapper],
+[data-radix-collection-item],
+[data-radix-dialog-content],
+[data-radix-popover-content],
+[data-radix-dropdown-menu-content],
+[data-radix-select-content] {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Tailwind ring utilities — reset to nothing */
+.ring,
+.ring-1,
+.ring-2,
+.ring-4,
+.ring-ring,
+.ring-offset-2,
+.focus\:ring-2,
+.focus\:ring-ring,
+.focus-visible\:ring-2,
+.focus-visible\:ring-ring,
+.focus-visible\:ring-offset-2 {
+  --tw-ring-color: transparent !important;
+  --tw-ring-shadow: 0 0 transparent !important;
+  --tw-ring-offset-shadow: 0 0 transparent !important;
+  box-shadow: none !important;
+}
+
+/* Shadcn command input specific (the model search input) */
+[cmdk-input] {
+  outline: none !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+/* ─── Thread (assistant-ui) sizing & redesign ────────────────── */
+/* Thread surface container must fill the chat-scroll area */
+.friction-thread-surface {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--friction-border);
+  background: var(--friction-surface);
+  overflow: hidden;
+}
+
+.aui-root .aui-thread-root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.aui-root .aui-thread-viewport {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--friction-border) transparent;
+  padding: 14px 16px;
+  background: transparent !important;
+  outline: none !important;
+}
+
+.aui-root .aui-thread-viewport:focus {
+  outline: none !important;
+}
+
+/* Messages container */
+.aui-root [data-slot="thread-messages"],
+.aui-root .aui-thread-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* User message row — right-aligned */
+.aui-root .aui-user-message {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0;
+}
+
+.aui-root .aui-user-message-content {
+  max-width: min(80%, 680px);
+  background: var(--friction-text) !important;
+  color: var(--friction-surface) !important;
+  border-radius: 14px 14px 4px 14px !important;
+  padding: 10px 14px !important;
+  font-size: 13px !important;
+  line-height: 1.65 !important;
+  border: none !important;
+  outline: none !important;
+}
+
+/* Assistant message row — left-aligned */
+.aui-root .aui-assistant-message {
+  display: flex;
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 0;
+}
+
+.aui-root .aui-assistant-message-content {
+  max-width: min(88%, 760px);
+  background: var(--friction-surface-alt) !important;
+  border: 1px solid var(--friction-border) !important;
+  border-radius: 4px 14px 14px 14px !important;
+  padding: 10px 14px !important;
+  font-size: 13px !important;
+  line-height: 1.65 !important;
+  color: var(--friction-text) !important;
+  outline: none !important;
+}
+
+/* Hide default avatar */
+.aui-root .aui-avatar-root {
+  display: none !important;
+}
+
+/* Action buttons — appear on hover */
+.aui-root [data-slot="message-actions"],
+.aui-root .aui-message-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-top: 3px;
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+
+.aui-root .aui-user-message:hover [data-slot="message-actions"],
+.aui-root .aui-user-message:hover .aui-message-actions,
+.aui-root .aui-assistant-message:hover [data-slot="message-actions"],
+.aui-root .aui-assistant-message:hover .aui-message-actions {
+  opacity: 1;
+}
+
+.aui-root [data-slot="action-bar-button"],
+.aui-root .aui-action-bar-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid var(--friction-border);
+  background: var(--friction-surface-alt);
+  color: var(--friction-muted);
+  cursor: pointer;
+  outline: none !important;
+  box-shadow: none !important;
+  transition: background 100ms, color 100ms;
+}
+
+.aui-root [data-slot="action-bar-button"]:hover,
+.aui-root .aui-action-bar-button:hover {
+  background: var(--friction-surface);
+  color: var(--friction-text);
+}
+
+/* Composer hidden (we use our own) */
+.aui-root .aui-composer-root {
+  display: none !important;
+}
+
+/* Scroll-to-bottom */
+.aui-root [data-slot="thread-scroll-to-bottom"],
+.aui-root .aui-thread-scroll-to-bottom {
+  background: var(--friction-surface) !important;
+  border: 1px solid var(--friction-border) !important;
+  color: var(--friction-text) !important;
+  border-radius: 50% !important;
+  outline: none !important;
+  box-shadow: var(--shadow-soft) !important;
+}
+
+/* Thread welcome */
+.aui-root .aui-thread-welcome,
+.aui-root [data-slot="thread-welcome"] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  flex: 1;
+  padding: 14px 16px;
+}
+
+/* Reasoning / thinking blocks */
+.aui-root .aui-reasoning-content {
+  font-size: 11.5px;
+  color: var(--friction-muted);
+  border-left: 2px solid var(--friction-border);
+  padding-left: 8px;
+  margin-bottom: 6px;
+  font-style: italic;
+}
+
+/* chat-scroll must flex properly for thread to fill space */
+.chat-scroll {
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-scroll .chat-stack {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ─── Judge chip ──────────────────────────────────────────────── */
+.workflow-judge-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--friction-border);
+  background: var(--friction-surface-alt);
+  padding: 0 9px;
+  font-size: 11.5px;
+  color: var(--friction-muted);
+  user-select: none;
+  /* visual separator from agents */
+  margin-right: 2px;
+  padding-right: 10px;
+  border-right: 1px solid var(--friction-border);
+}
+
+.workflow-judge-chip-label {
+  font-weight: 700;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--friction-muted);
+}
+
+/* Radix writes focus-visible outlines directly on elements; suppress all of them */
+[data-radix-popper-content-wrapper],
+[data-radix-collection-item],
+[data-radix-dialog-content],
+[data-radix-popover-content],
+[data-radix-dropdown-menu-content],
+[data-radix-select-content],
+[data-radix-toast-viewport] {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Catch-all for any element with a data-radix-* prefix that gets focus */
+[class*="radix-"],
+[data-state],
+button,
+a,
+[role="button"],
+[role="menuitem"],
+[role="option"],
+[role="tab"],
+[role="combobox"] {
+  outline: none !important;
+}
+
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Shadcn ring utilities override */
+.ring-1,
+.ring-2,
+.ring-ring,
+.focus\:ring-2,
+.focus-visible\:ring-2,
+.focus-visible\:ring-ring {
+  --tw-ring-shadow: none !important;
+  box-shadow: none !important;
+}
+
+/* ─── Thread (assistant-ui) redesign ─────────────────────────── */
+/* Viewport: fill available space, no ghost padding */
+.aui-root .aui-thread-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.aui-root .aui-thread-viewport {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--friction-border) transparent;
+  padding: 12px 0;
+  background: transparent !important;
+}
+
+/* Messages container */
+.aui-root [data-slot="thread-messages"],
+.aui-root .aui-thread-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 2px;
+}
+
+/* User message — right-aligned, solid */
+.aui-root .aui-user-message {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0;
+}
+
+.aui-root .aui-user-message-content {
+  max-width: min(80%, 680px);
+  background: var(--friction-text) !important;
+  color: var(--friction-surface) !important;
+  border-radius: 14px 14px 4px 14px !important;
+  padding: 10px 14px !important;
+  font-size: 13px !important;
+  line-height: 1.65 !important;
+  border: none !important;
+  outline: none !important;
+}
+
+/* Assistant message — left-aligned, surface */
+.aui-root .aui-assistant-message {
+  display: flex;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 0;
+  align-items: flex-start;
+}
+
+.aui-root .aui-assistant-message-content {
+  max-width: min(88%, 760px);
+  background: var(--friction-surface-alt) !important;
+  border: 1px solid var(--friction-border) !important;
+  border-radius: 4px 14px 14px 14px !important;
+  padding: 10px 14px !important;
+  font-size: 13px !important;
+  line-height: 1.65 !important;
+  color: var(--friction-text) !important;
+  outline: none !important;
+}
+
+/* Remove avatar circle (it uses too much space) */
+.aui-root .aui-avatar-root {
+  display: none !important;
+}
+
+/* Branch / edit action row */
+.aui-root [data-slot="message-actions"],
+.aui-root .aui-message-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 0;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.aui-root .aui-user-message:hover [data-slot="message-actions"],
+.aui-root .aui-user-message:hover .aui-message-actions,
+.aui-root .aui-assistant-message:hover [data-slot="message-actions"],
+.aui-root .aui-assistant-message:hover .aui-message-actions {
+  opacity: 1;
+}
+
+/* Action buttons */
+.aui-root [data-slot="action-bar-button"],
+.aui-root .aui-action-bar-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid var(--friction-border);
+  background: var(--friction-surface-alt);
+  color: var(--friction-muted);
+  cursor: pointer;
+  outline: none !important;
+  box-shadow: none !important;
+  transition: background 100ms ease, color 100ms ease;
+}
+
+.aui-root [data-slot="action-bar-button"]:hover,
+.aui-root .aui-action-bar-button:hover {
+  background: var(--friction-surface);
+  color: var(--friction-text);
+}
+
+/* Composer at bottom of thread */
+.aui-root .aui-composer-root {
+  border-top: 1px solid var(--friction-border);
+  padding: 8px 0 4px;
+  background: transparent !important;
+  outline: none !important;
+}
+
+.aui-root .aui-composer-input {
+  width: 100%;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--friction-text);
+  resize: none;
+  padding: 4px 0;
+}
+
+.aui-root .aui-composer-input::placeholder {
+  color: var(--friction-muted);
+}
+
+/* Thread scroll to bottom button */
+.aui-root [data-slot="thread-scroll-to-bottom"],
+.aui-root .aui-thread-scroll-to-bottom {
+  background: var(--friction-surface) !important;
+  border: 1px solid var(--friction-border) !important;
+  color: var(--friction-text) !important;
+  border-radius: 50% !important;
+  outline: none !important;
+  box-shadow: var(--shadow-soft) !important;
+  transition: opacity 150ms ease !important;
+}
+
+/* reasoning / tool-call blocks inside messages */
+.aui-root .aui-reasoning-content {
+  font-size: 11.5px;
+  color: var(--friction-muted);
+  border-left: 2px solid var(--friction-border);
+  padding-left: 8px;
+  margin-bottom: 6px;
+  font-style: italic;
+}
+
+/* Thread welcome / empty state */
+.aui-root .aui-thread-welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  flex: 1;
+  padding: 16px 4px 0;
+}
+
+.aui-root .aui-thread-welcome-message {
+  font-size: 13px;
+  color: var(--friction-muted);
+}
