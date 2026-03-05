@@ -222,7 +222,9 @@ export function WorkflowPromptInput({
   function groupHeading(group: (typeof cliGroups)[number]): string {
     if (!cliModelInventoryLoaded[group.alias]) return `${group.label}`;
     if (group.source === "fallback") return `${group.label} (fallback)`;
-    if (group.source === "cache" && group.stale) return `${group.label} (refreshing…)`;
+    if (group.source === "cache" && group.stale) {
+      return `${group.label} (refreshing…)`;
+    }
     return group.label;
   }
 
@@ -507,79 +509,83 @@ export function WorkflowPromptInput({
 
             {/* Footer */}
             <PromptInputFooter className="workflow-prompt-footer">
-              <PromptInputTools>
-                {/* Judge chip — clickable, opens provider picker */}
-                {judgeProvider ? (
-                  <div className="workflow-agent-chip-wrap">
-                    <button
-                      type="button"
-                      className="workflow-judge-chip workflow-judge-chip-btn"
-                      aria-label="Change judge provider"
-                      onClick={() => setJudgeSelectorOpen(true)}
-                    >
-                      <ModelSelectorLogo
-                        provider={JUDGE_PROVIDER_SLUG[judgeProvider] ?? "anthropic"}
-                        className="size-3 flex-none"
-                      />
-                      <span className="workflow-judge-chip-label">Judge</span>
-                      <span className="workflow-agent-chip-sep">·</span>
-                      <span className="workflow-agent-chip-model">
-                        {judgeModel ? shortModelName(judgeModel) : JUDGE_PROVIDER_LABEL[judgeProvider] ?? judgeProvider}
-                      </span>
-                      <ChevronDownIcon className="size-3 flex-none text-friction-muted" />
-                    </button>
-                  </div>
-                ) : null}
-                {displayAgents.map((agent) => {
-                  const resolvedModel =
-                    (agentCliModels[agent.id] ?? "").trim() ||
-                    (cliModels[agent.cli] ?? "").trim();
-                  return (
-                    <div key={agent.id} className="workflow-agent-chip-wrap">
+              <PromptInputTools className="workflow-prompt-tools">
+                <div className="workflow-prompt-tools-scroll">
+                  {/* Judge chip — clickable, opens provider picker */}
+                  {judgeProvider ? (
+                    <div className="workflow-agent-chip-wrap">
                       <button
                         type="button"
-                        className={["workflow-agent-chip"].join(" ")}
-                        onClick={() => openSelectorForAgent(agent.id)}
+                        className="workflow-judge-chip workflow-judge-chip-btn"
+                        aria-label="Change judge provider"
+                        onClick={() => setJudgeSelectorOpen(true)}
                       >
                         <ModelSelectorLogo
-                          provider={CLI_PROVIDER_SLUG[agent.cli]}
+                          provider={JUDGE_PROVIDER_SLUG[judgeProvider] ?? "anthropic"}
                           className="size-3 flex-none"
                         />
-                        <span className="workflow-agent-chip-label">
-                          Agent {agent.label}
-                        </span>
+                        <span className="workflow-judge-chip-label">Judge</span>
                         <span className="workflow-agent-chip-sep">·</span>
                         <span className="workflow-agent-chip-model">
-                          {shortModelName(resolvedModel)}
+                          {judgeModel
+                            ? shortModelName(judgeModel)
+                            : JUDGE_PROVIDER_LABEL[judgeProvider] ?? judgeProvider}
                         </span>
                         <ChevronDownIcon className="size-3 flex-none text-friction-muted" />
                       </button>
-
-                      {!phase3Scope && agent.removable ? (
+                    </div>
+                  ) : null}
+                  {displayAgents.map((agent) => {
+                    const resolvedModel =
+                      (agentCliModels[agent.id] ?? "").trim() ||
+                      (cliModels[agent.cli] ?? "").trim();
+                    return (
+                      <div key={agent.id} className="workflow-agent-chip-wrap">
                         <button
                           type="button"
-                          className="workflow-agent-chip-remove"
-                          onClick={() => onRemovePhase12Agent(agent.id)}
-                          aria-label={`Remove Agent ${agent.label}`}
+                          className={["workflow-agent-chip"].join(" ")}
+                          onClick={() => openSelectorForAgent(agent.id)}
                         >
-                          <XIcon className="size-3" />
+                          <ModelSelectorLogo
+                            provider={CLI_PROVIDER_SLUG[agent.cli]}
+                            className="size-3 flex-none"
+                          />
+                          <span className="workflow-agent-chip-label">
+                            Agent {agent.label}
+                          </span>
+                          <span className="workflow-agent-chip-sep">·</span>
+                          <span className="workflow-agent-chip-model">
+                            {shortModelName(resolvedModel)}
+                          </span>
+                          <ChevronDownIcon className="size-3 flex-none text-friction-muted" />
                         </button>
-                      ) : null}
-                    </div>
-                  );
-                })}
 
-                {canAddPhase12Agent ? (
-                  <button
-                    type="button"
-                    className="workflow-agent-chip-add"
-                    onClick={onAddPhase12Agent}
-                    aria-label="Add agent"
-                  >
-                    <PlusIcon className="size-3.5" />
-                    <span className="text-xs">Add agent</span>
-                  </button>
-                ) : null}
+                        {!phase3Scope && agent.removable ? (
+                          <button
+                            type="button"
+                            className="workflow-agent-chip-remove"
+                            onClick={() => onRemovePhase12Agent(agent.id)}
+                            aria-label={`Remove Agent ${agent.label}`}
+                          >
+                            <XIcon className="size-3" />
+                          </button>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+
+                  {canAddPhase12Agent ? (
+                    <button
+                      type="button"
+                      className="workflow-agent-chip-add"
+                      onClick={onAddPhase12Agent}
+                      aria-label="Add agent"
+                    >
+                      <PlusIcon className="size-3.5" />
+                      <span className="text-xs">Add agent</span>
+                    </button>
+                  ) : null}
+                </div>
               </PromptInputTools>
 
               <PromptInputSubmit disabled={!canSubmit} />

@@ -49,6 +49,11 @@ interface BackendCliModelsOutput {
   reason?: string;
   stale?: boolean;
   lastUpdatedAt?: string;
+  providerMode?: string;
+}
+
+interface PhaseRunOptions {
+  streamRequestId?: string;
 }
 
 export async function diagnosePhase12Cli(runtimeSettings: RuntimeSettings): Promise<Phase12RuntimeDiagnostic> {
@@ -74,7 +79,11 @@ export async function diagnosePhase12Cli(runtimeSettings: RuntimeSettings): Prom
   throw new Error("Tauri runtime requis. Lance l'application desktop pour diagnostiquer la runtime CLI.");
 }
 
-export async function runPhase1(requirement: string, runtimeSettings: RuntimeSettings): Promise<Phase1Result> {
+export async function runPhase1(
+  requirement: string,
+  runtimeSettings: RuntimeSettings,
+  options?: PhaseRunOptions,
+): Promise<Phase1Result> {
   if (canUseTauriCommands()) {
     const phase12Agents = runtimeSettings.phase12Agents;
     return invokeCommand<Phase1Result>("run_phase1", {
@@ -91,7 +100,8 @@ export async function runPhase1(requirement: string, runtimeSettings: RuntimeSet
         cli_commands: runtimeSettings.cliCommands,
         cli_models: runtimeSettings.cliModels,
         agent_cli_models: runtimeSettings.agentCliModels
-      }
+      },
+      stream_request_id: options?.streamRequestId
     });
   }
 
@@ -101,7 +111,8 @@ export async function runPhase1(requirement: string, runtimeSettings: RuntimeSet
 export async function runPhase2(
   requirement: string,
   clarifications: string,
-  runtimeSettings: RuntimeSettings
+  runtimeSettings: RuntimeSettings,
+  options?: PhaseRunOptions,
 ): Promise<Phase2Result> {
   if (canUseTauriCommands()) {
     const phase12Agents = runtimeSettings.phase12Agents;
@@ -120,14 +131,18 @@ export async function runPhase2(
         cli_commands: runtimeSettings.cliCommands,
         cli_models: runtimeSettings.cliModels,
         agent_cli_models: runtimeSettings.agentCliModels
-      }
+      },
+      stream_request_id: options?.streamRequestId
     });
   }
 
   throw new Error("Tauri runtime requis. Lance l'application desktop pour exécuter la phase 2.");
 }
 
-export async function runPhase3Adversarial(input: Phase3RunInput): Promise<Phase3Result> {
+export async function runPhase3Adversarial(
+  input: Phase3RunInput,
+  options?: PhaseRunOptions,
+): Promise<Phase3Result> {
   if (canUseTauriCommands()) {
     const payload = await invokeCommand<BackendPhase3Result>("run_phase3", {
       repo_path: input.repoPath,
@@ -146,7 +161,8 @@ export async function runPhase3Adversarial(input: Phase3RunInput): Promise<Phase
         cli_models: input.runtimeSettings.cliModels,
         agent_cli_models: input.runtimeSettings.agentCliModels
       },
-      auto_cleanup: input.autoCleanup
+      auto_cleanup: input.autoCleanup,
+      stream_request_id: options?.streamRequestId
     });
 
     return {
@@ -343,6 +359,8 @@ export async function listCliModels(
     forceRefresh?: boolean;
   }
 ): Promise<CliAliasModelInventory> {
+  const startedAt = performance.now();
+  const fetchedAt = new Date().toISOString();
   if (canUseTauriCommands()) {
     const payload = await invokeCommand<BackendCliModelsOutput>("list_cli_models", {
       cli_alias: cliAlias,
@@ -360,7 +378,10 @@ export async function listCliModels(
       source: payload.source,
       reason: payload.reason,
       stale: payload.stale ?? false,
-      lastUpdatedAt: payload.lastUpdatedAt ?? new Date().toISOString()
+      lastUpdatedAt: payload.lastUpdatedAt ?? fetchedAt,
+      providerMode: payload.providerMode,
+      fetchDurationMs: Math.max(1, Math.round(performance.now() - startedAt)),
+      fetchedAt,
     };
   }
 

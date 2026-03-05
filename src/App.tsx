@@ -3,10 +3,9 @@ import {
   useExternalStoreRuntime,
 } from "@assistant-ui/react";
 import { Thread, ThreadList } from "@assistant-ui/react-ui";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ChevronLeft,
-  ChevronRight,
+  ArrowDown,
   Download,
   PanelLeft,
   Save,
@@ -16,7 +15,6 @@ import { AgentCard } from "./components/AgentCard";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { DiffViewer } from "./components/DiffViewer";
 import { DivergenceBlock } from "./components/DivergenceBlock";
-import { MultiPlanArbitrationCard } from "./components/MultiPlanArbitrationCard";
 import { PlanPanel } from "./components/PlanPanel";
 import { SessionsDrawer } from "./components/SessionsDrawer";
 import { SettingsDialog } from "./components/SettingsDialog";
@@ -24,16 +22,19 @@ import { OnboardingCliSetupScreen } from "./components/OnboardingCliSetupScreen"
 import { ThemeProvider, ThemeToggle } from "./components/ThemeProvider";
 import { CodeCard } from "./components/chat/CodeCard";
 import { ConversationShell } from "./components/chat/ConversationShell";
-import {
-  ClarificationHelper,
-  type ClarificationDirectionOption,
-} from "./components/chat/ClarificationHelper";
+import { CommandTimelineCard } from "./components/chat/CommandTimelineCard";
+import { DecisionPhase2Inline } from "./components/chat/DecisionPhase2Inline";
+import { FrictionPhase1Inline } from "./components/chat/FrictionPhase1Inline";
+import { FrictionInboxCard } from "./components/chat/FrictionInboxCard";
+import { Phase3ValidateInline } from "./components/chat/Phase3ValidateInline";
 import { PlanCard } from "./components/chat/PlanCard";
+import { AssistantMessageArtifactAware } from "./components/chat/AssistantMessageArtifactAware";
+import { WorkflowDoneInline } from "./components/chat/WorkflowDoneInline";
 import { WorkflowPromptInput } from "./components/chat/prompt-input/WorkflowPromptInput";
-import { ShimmerBlock } from "./components/chat/ShimmerBlock";
 import { SuggestionChips } from "./components/chat/SuggestionChips";
 import { TaskRail } from "./components/chat/TaskRail";
 import { Button } from "./components/ui/button";
+import { canUseTauriCommands } from "./lib/api";
 import {
   buildSessionExport,
   diagnosePhase12Cli,
@@ -64,9 +65,14 @@ import type {
   CliResolutionDiagnostic,
   ConversationItem,
   ConversationMetaPayload,
+  Divergence,
+  FrictionInboxDraft,
+  FrictionResolutionChoice,
   FrictionSession,
   HumanDecisionStructured,
   JudgeProvider,
+  CliCommandLogEvent,
+  CliTimelineRun,
   Phase12RuntimeDiagnostic,
   PhaseAgentPlan,
   PhaseAgentResponse,
@@ -155,7 +161,14 @@ const CLI_DETECTION_AGENTS: PhaseAgentRuntime[] = [
   { id: "detect_opencode", label: "Detect OpenCode", cli: "opencode" },
 ];
 
-const DEFAULT_CLARIFICATION_DIRECTION = "hybrid";
+const CLI_COMMAND_LOG_EVENT_NAME = "friction://cli-command-log";
+const STDERR_ANSI_PREFIX = "\u001b[31m[stderr]\u001b[0m ";
+const CLI_TIMELINE_OUTPUT_MAX_CHARS = 1_000_000;
+const CLI_TIMELINE_TRUNCATED_SUFFIX = "\n...[truncated]\n";
+const CLI_TIMELINE_EVENT_FLUSH_MS = 75;
+const CLI_TIMELINE_EVENT_IMMEDIATE_FLUSH_THRESHOLD = 12;
+const THREAD_ARTIFACT_MARKER_PREFIX = "FRICTION_ARTIFACT::";
+const THREAD_SCROLL_BOTTOM_VISIBILITY_THRESHOLD_PX = 80;
 
 const SUGGESTION_SETS: Record<WorkflowStep, string[]> = {
   requirement: [],
@@ -174,12 +187,12 @@ const SUGGESTION_SETS: Record<WorkflowStep, string[]> = {
 const PROMPT_HINTS: Record<WorkflowStep, string> = {
   requirement: "Describe the feature or system requirement in detail…",
   clarifications:
-    "Use the helper: choose direction, set hard constraints, answer open questions…",
-  decision: "Pick a baseline plan (or hybrid) and justify key tradeoffs…",
+    "Resolve friction points in the inline card, then click Resolve & Run Phase 2…",
+  decision: "Use the inline arbitration block to apply the Phase 2 decision…",
   phase3_config:
-    "Send to start adversarial validation with the settings above…",
+    "Use the inline Phase 3 block to run validation…",
   phase3_run: "Validation running…",
-  completed: "Workflow completed — save, export, or start a new session.",
+  completed: "Workflow completed — use the inline Done actions below.",
 };
 
 function withTrimmed(value: string): string {
@@ -240,6 +253,17 @@ function ensureAtLeastTwoPhaseAgents(
 
   const defaults = buildDefaultPhaseAgents(2);
   return defaults.map((fallback, index) => value[index] ?? fallback);
+}
+
+function uniqueCliAliases(aliases: AgentCli[]): AgentCli[] {
+  const seen = new Set<AgentCli>();
+  const ordered: AgentCli[] = [];
+  aliases.forEach((alias) => {
+    if (seen.has(alias)) return;
+    seen.add(alias);
+    ordered.push(alias);
+  });
+  return ordered;
 }
 
 function phase12AgentsFromRuntime(
@@ -344,57 +368,173 @@ function phase2AgentsFromResult(
   ];
 }
 
-function collectTopQuestions(
-  result: Phase1Result | null,
-  phaseAgents: PhaseAgentRuntime[],
-  limit = 3,
-): string[] {
-  if (!result) return [];
-  const responses = phase1AgentsFromResult(result, phaseAgents);
-  return responses
-    .flatMap((item) => item.response.questions)
-    .map((item) => withTrimmed(item))
-    .filter(
-      (item, index, values) =>
-        item.length > 0 && values.indexOf(item) === index,
-    )
-    .slice(0, limit);
+const MIN_FRICTION_RATIONALE_LENGTH = 12;
+
+function frictionResolutionKey(
+  divergence: Divergence,
+  index: number,
+): string {
+  return `${divergence.field}:${index}`;
 }
 
-function buildClarificationTemplate(
-  directionLabel: string,
-  constraints: string,
-  answers: string,
-  questions: string[],
-): string {
-  const trimmedConstraints = withTrimmed(constraints);
-  const trimmedAnswers = withTrimmed(answers);
-  const lines: string[] = [
-    `Direction: ${directionLabel}`,
-    "Why: ",
-    "",
-    "Hard constraints:",
-    trimmedConstraints ||
-    "- Timeline:\n- Team size:\n- Existing infra:\n- Budget ceiling:",
-    "",
-    "Answers to agent questions:",
-  ];
+function normalizeFrictionRationale(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
 
-  if (trimmedAnswers) {
-    lines.push(trimmedAnswers);
-    return lines.join("\n");
+function normalizeFrictionChoice(
+  value: unknown,
+): FrictionResolutionChoice | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  const normalized = trimmed.toLowerCase();
+  if (normalized === "hybrid") return "hybrid";
+  if (normalized === "a" || normalized === "agent_a") return "agent:agent_a";
+  if (normalized === "b" || normalized === "agent_b") return "agent:agent_b";
+  if (normalized.startsWith("agent:")) {
+    const agentId = withTrimmed(trimmed.slice("agent:".length));
+    if (!agentId) return undefined;
+    return `agent:${agentId}`;
+  }
+  return undefined;
+}
+
+function frictionChoiceAgentId(
+  choice?: FrictionResolutionChoice,
+): string | null {
+  if (!choice || choice === "hybrid") return null;
+  if (!choice.startsWith("agent:")) return null;
+  const agentId = withTrimmed(choice.slice("agent:".length));
+  return agentId || null;
+}
+
+function normalizeFrictionInboxDraft(
+  draft: FrictionInboxDraft,
+): FrictionInboxDraft {
+  return {
+    ...draft,
+    direction: normalizeFrictionChoice(draft.direction),
+    resolutions: draft.resolutions.map((item) => ({
+      ...item,
+      choice: normalizeFrictionChoice(item.choice),
+    })),
+  };
+}
+
+function createFrictionInboxDraft(result: Phase1Result): FrictionInboxDraft {
+  return {
+    status: result.divergences.length === 0 ? "ready" : "draft",
+    resolutions: result.divergences.map((divergence, index) => ({
+      key: frictionResolutionKey(divergence, index),
+      field: divergence.field,
+      severity: divergence.severity,
+      rationale: "",
+    })),
+  };
+}
+
+function computeFrictionGateState(
+  result: Phase1Result | null,
+  draft: FrictionInboxDraft | null,
+): { ready: boolean; invalidKeys: string[] } {
+  if (!result || !draft) return { ready: false, invalidKeys: [] };
+
+  const invalidKeys = result.divergences
+    .map((divergence, index) => frictionResolutionKey(divergence, index))
+    .filter((key) => {
+      const entry = draft.resolutions.find((item) => item.key === key);
+      if (!entry?.choice) return true;
+      return (
+        normalizeFrictionRationale(entry.rationale).length <
+        MIN_FRICTION_RATIONALE_LENGTH
+      );
+    });
+
+  return {
+    ready: result.divergences.length === 0 || invalidKeys.length === 0,
+    invalidKeys,
+  };
+}
+
+function inferFrictionDirection(
+  draft: FrictionInboxDraft,
+): FrictionResolutionChoice {
+  if (draft.direction) {
+    const normalizedDirection = normalizeFrictionChoice(draft.direction);
+    if (normalizedDirection) return normalizedDirection;
   }
 
-  if (questions.length === 0) {
-    lines.push("- No unresolved question.");
-    return lines.join("\n");
-  }
+  const votes = draft.resolutions
+    .map((item) => normalizeFrictionChoice(item.choice))
+    .filter((choice): choice is FrictionResolutionChoice => Boolean(choice));
+  if (votes.length === 0) return "hybrid";
 
-  questions.forEach((question, index) => {
-    lines.push(`${index + 1}. ${question}`);
-    lines.push("Answer: ");
+  const agentVoteCount = new Map<string, number>();
+  votes.forEach((choice) => {
+    const agentId = frictionChoiceAgentId(choice);
+    if (!agentId) return;
+    agentVoteCount.set(agentId, (agentVoteCount.get(agentId) ?? 0) + 1);
   });
 
+  let topAgentId: string | null = null;
+  let topCount = 0;
+  agentVoteCount.forEach((count, agentId) => {
+    if (count > topCount) {
+      topAgentId = agentId;
+      topCount = count;
+    } else if (count === topCount) {
+      topAgentId = null;
+    }
+  });
+
+  if (!topAgentId) return "hybrid";
+  if (topCount * 2 <= votes.length) return "hybrid";
+  return `agent:${topAgentId}`;
+}
+
+function frictionChoiceLabel(
+  choice: FrictionResolutionChoice,
+  phase1Agents: PhaseAgentResponse[],
+): string {
+  if (choice === "hybrid") return "Hybrid";
+  const agentId = frictionChoiceAgentId(choice);
+  if (!agentId) return "Hybrid";
+  const agent = phase1Agents.find((item) => item.id === agentId);
+  return agent?.label ?? `Agent ${agentId}`;
+}
+
+function buildClarificationsFromFrictionInbox(
+  result: Phase1Result,
+  draft: FrictionInboxDraft,
+  phase1Agents: PhaseAgentResponse[],
+): string {
+  const lines: string[] = [];
+  const inferredDirection = inferFrictionDirection(draft);
+  lines.push(`Direction: ${frictionChoiceLabel(inferredDirection, phase1Agents)}`);
+  lines.push("");
+  lines.push("Resolved friction points:");
+
+  if (result.divergences.length === 0) {
+    lines.push("- No friction points detected.");
+  } else {
+    result.divergences.forEach((divergence, index) => {
+      const key = frictionResolutionKey(divergence, index);
+      const entry = draft.resolutions.find((item) => item.key === key);
+      const normalizedChoice = normalizeFrictionChoice(entry?.choice) ?? "hybrid";
+      const choice =
+        normalizedChoice === "hybrid"
+          ? "Hybrid"
+          : `Prefer ${frictionChoiceLabel(normalizedChoice, phase1Agents)}`;
+      const rationale = normalizeFrictionRationale(entry?.rationale ?? "");
+      lines.push(`${index + 1}. [${divergence.field}] Choice: ${choice}`);
+      lines.push(`Rationale: ${rationale || "No rationale provided."}`);
+    });
+  }
+
+  lines.push("");
+  lines.push("Hard constraints:");
+  lines.push("None specified.");
   return lines.join("\n");
 }
 
@@ -409,7 +549,6 @@ function firstSentence(text: string): string {
 function buildPhase1CompletionMessage(
   result: Phase1Result,
   phase1Agents: PhaseAgentResponse[],
-  topQuestions: string[],
 ): string {
   const frictionCount = result.divergences.length;
   const lines: string[] = [];
@@ -462,14 +601,8 @@ function buildPhase1CompletionMessage(
   }
 
   lines.push("");
-  lines.push("Next step: use the Clarification helper under the input.");
-  lines.push(
-    "Fill 3 blocks: Direction, Hard constraints, Answers to open questions.",
-  );
-
-  if (topQuestions.length > 0) {
-    lines.push(`Priority question: ${topQuestions[0]}`);
-  }
+  lines.push("Next step: resolve friction points in the inline card below.");
+  lines.push("Once all points are resolved, click Resolve & Run Phase 2.");
 
   if (phase1Agents.length > 2) {
     lines.push(
@@ -671,8 +804,46 @@ function extractThreadTextContent(content: unknown): string {
   return withTrimmed(fragments.join("\n"));
 }
 
+function isArtifactConversationItem(item: ConversationItem): boolean {
+  if (
+    item.type === "task" ||
+    item.type === "plan" ||
+    item.type === "code" ||
+    item.type === "cli_timeline" ||
+    item.type === "friction_phase1" ||
+    item.type === "friction_inbox" ||
+    item.type === "decision_phase2" ||
+    item.type === "validate_phase3" ||
+    item.type === "workflow_done"
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function toThreadArtifactMarker(itemId: string): string {
+  return `${THREAD_ARTIFACT_MARKER_PREFIX}${itemId}`;
+}
+
+function parseThreadArtifactMarker(content: string): string | null {
+  const trimmed = withTrimmed(content);
+  if (!trimmed || !trimmed.startsWith(THREAD_ARTIFACT_MARKER_PREFIX)) {
+    return null;
+  }
+  const marker = withTrimmed(
+    trimmed.slice(THREAD_ARTIFACT_MARKER_PREFIX.length),
+  );
+  if (!marker) return null;
+  const versionDelimiterIndex = marker.indexOf("::v");
+  if (versionDelimiterIndex <= 0) {
+    return marker;
+  }
+  return withTrimmed(marker.slice(0, versionDelimiterIndex)) || null;
+}
+
 function conversationItemToAssistantThreadMessage(
   item: ConversationItem,
+  artifactRefreshTokens?: Map<string, string>,
 ): { id: string; role: "assistant" | "user"; content: string } | null {
   if (item.type === "user" || item.type === "assistant") {
     const text = withTrimmed(item.text);
@@ -681,6 +852,19 @@ function conversationItemToAssistantThreadMessage(
       id: item.id,
       role: item.type,
       content: text,
+    };
+  }
+
+  if (isArtifactConversationItem(item)) {
+    const markerBase = toThreadArtifactMarker(item.id);
+    const refreshToken = artifactRefreshTokens?.get(item.id);
+    return {
+      id: item.id,
+      role: "assistant",
+      content:
+        refreshToken && withTrimmed(refreshToken)
+          ? `${markerBase}::v${refreshToken}`
+          : markerBase,
     };
   }
 
@@ -706,6 +890,314 @@ function conversationItemToAssistantThreadMessage(
   }
 
   return null;
+}
+
+function isCliCommandLogEventPayload(value: unknown): value is CliCommandLogEvent {
+  if (!value || typeof value !== "object") return false;
+  const event = value as Partial<CliCommandLogEvent>;
+  if (typeof event.requestId !== "string" || !event.requestId.trim()) return false;
+  if (event.phase !== 1 && event.phase !== 2 && event.phase !== 3) return false;
+  if (typeof event.kind !== "string" || !event.kind.trim()) return false;
+  if (typeof event.timestamp !== "string" || !event.timestamp.trim()) return false;
+  return true;
+}
+
+function createCliTimelineRun(
+  requestId: string,
+  phase: 1 | 2 | 3,
+  timestamp?: string,
+): CliTimelineRun {
+  const now = timestamp && timestamp.trim() ? timestamp : new Date().toISOString();
+  return {
+    requestId,
+    phase,
+    status: "running",
+    createdAt: now,
+    updatedAt: now,
+    commands: [],
+  };
+}
+
+function appendCliTimelineChunkWithCap(
+  currentOutput: string,
+  chunk: string,
+  alreadyTruncated: boolean,
+): { output: string; truncated: boolean } {
+  if (alreadyTruncated) {
+    return { output: currentOutput, truncated: true };
+  }
+  const remaining = CLI_TIMELINE_OUTPUT_MAX_CHARS - currentOutput.length;
+  if (remaining <= 0) {
+    const output = currentOutput.endsWith(CLI_TIMELINE_TRUNCATED_SUFFIX)
+      ? currentOutput
+      : `${currentOutput}${CLI_TIMELINE_TRUNCATED_SUFFIX}`;
+    return { output, truncated: true };
+  }
+  if (chunk.length <= remaining) {
+    return {
+      output: `${currentOutput}${chunk}`,
+      truncated: false,
+    };
+  }
+  return {
+    output: `${currentOutput}${chunk.slice(0, remaining)}${CLI_TIMELINE_TRUNCATED_SUFFIX}`,
+    truncated: true,
+  };
+}
+
+function extractReadableCliLineFromJson(line: string): string | null {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+    return null;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") {
+    return null;
+  }
+  const record = parsed as Record<string, unknown>;
+  const eventType = typeof record.type === "string" ? record.type : "";
+
+  if (eventType === "item.completed") {
+    const item =
+      record.item && typeof record.item === "object"
+        ? (record.item as Record<string, unknown>)
+        : null;
+    const itemType = typeof item?.type === "string" ? item.type : "";
+    const text = typeof item?.text === "string" ? item.text.trim() : "";
+    if (!text) return null;
+    if (itemType === "reasoning") return `[reasoning] ${text}`;
+    if (itemType === "agent_message") return text;
+    return `[${itemType || "item"}] ${text}`;
+  }
+
+  if (eventType === "message") {
+    const role = typeof record.role === "string" ? record.role : "";
+    const content = typeof record.content === "string" ? record.content.trim() : "";
+    if (role === "assistant" && content) return content;
+    return null;
+  }
+
+  if (eventType === "turn.completed") {
+    const usage =
+      record.usage && typeof record.usage === "object"
+        ? (record.usage as Record<string, unknown>)
+        : null;
+    if (!usage) return "[turn] completed";
+    const input =
+      typeof usage.input_tokens === "number"
+        ? usage.input_tokens
+        : typeof usage.input === "number"
+          ? usage.input
+          : null;
+    const output =
+      typeof usage.output_tokens === "number"
+        ? usage.output_tokens
+        : typeof usage.output === "number"
+          ? usage.output
+          : null;
+    const parts = ["[usage]"];
+    if (typeof input === "number") parts.push(`input=${input}`);
+    if (typeof output === "number") parts.push(`output=${output}`);
+    return parts.join(" ");
+  }
+
+  if (eventType === "result") {
+    const status = typeof record.status === "string" ? record.status : "unknown";
+    const stats =
+      record.stats && typeof record.stats === "object"
+        ? (record.stats as Record<string, unknown>)
+        : null;
+    const durationMs =
+      stats && typeof stats.duration_ms === "number" ? stats.duration_ms : null;
+    const summary = [`[result] ${status}`];
+    if (typeof durationMs === "number") {
+      summary.push(`${durationMs}ms`);
+    }
+    return summary.join(" · ");
+  }
+
+  if (eventType === "thread.started") {
+    return "[thread] started";
+  }
+  if (eventType === "turn.started") {
+    return "[turn] started";
+  }
+
+  if (typeof record.text === "string" && record.text.trim()) {
+    return record.text.trim();
+  }
+
+  return null;
+}
+
+function toReadableCliChunk(chunk: string): string {
+  const normalized = chunk.replace(/\r\n/g, "\n");
+  const lines = normalized.split("\n");
+  const readableLines = lines.map((line) => {
+    if (!line.trim()) return "";
+    return extractReadableCliLineFromJson(line) ?? line;
+  });
+  return readableLines.join("\n");
+}
+
+function applyCliCommandLogEvent(
+  previousRuns: CliTimelineRun[],
+  event: CliCommandLogEvent,
+): CliTimelineRun[] {
+  const next = previousRuns.slice();
+  const runIndex = next.findIndex((run) => run.requestId === event.requestId);
+  const hasRun = runIndex >= 0;
+  const run = hasRun
+    ? { ...next[runIndex], commands: next[runIndex].commands.map((command) => ({ ...command })) }
+    : createCliTimelineRun(event.requestId, event.phase, event.timestamp);
+  run.updatedAt = event.timestamp;
+  if (!hasRun) {
+    next.push(run);
+  } else {
+    next[runIndex] = run;
+  }
+
+  const ensureCommand = () => {
+    const fallbackIndex = run.commands.length + 1;
+    const commandId =
+      withTrimmed(event.commandId ?? "") ||
+      withTrimmed(event.agentId ?? "") ||
+      `cmd_${fallbackIndex}`;
+    const existingIndex = run.commands.findIndex(
+      (command) => command.commandId === commandId,
+    );
+    if (existingIndex >= 0) {
+      return existingIndex;
+    }
+    run.commands.push({
+      commandId,
+      agentId: event.agentId,
+      agentLabel: withTrimmed(event.agentLabel ?? "") || `Command ${fallbackIndex}`,
+      cli: event.agentCli,
+      command: event.command,
+      commandSource: event.commandSource,
+      resolvedPath: event.resolvedPath,
+      model: event.model,
+      modelSource: event.modelSource,
+      output: "",
+      rawOutput: "",
+      readableOutput: "",
+      displayMode: "readable",
+      status: "running",
+      isStreaming: false,
+      startedAt: event.timestamp,
+      updatedAt: event.timestamp,
+    });
+    return run.commands.length - 1;
+  };
+
+  const requiresCommand =
+    event.kind === "command_started" ||
+    event.kind === "command_chunk" ||
+    event.kind === "command_finished";
+  const commandIndex = requiresCommand ? ensureCommand() : null;
+  const command = commandIndex !== null ? run.commands[commandIndex] : null;
+
+  switch (event.kind) {
+    case "run_started":
+      run.status = "running";
+      break;
+    case "command_started":
+      run.status = "running";
+      if (command) {
+        if (event.agentId) command.agentId = event.agentId;
+        if (event.agentLabel) command.agentLabel = event.agentLabel;
+        if (event.agentCli) command.cli = event.agentCli;
+        if (event.command) command.command = event.command;
+        if (event.commandSource) command.commandSource = event.commandSource;
+        if (event.resolvedPath) command.resolvedPath = event.resolvedPath;
+        if (event.model) command.model = event.model;
+        if (event.modelSource) command.modelSource = event.modelSource;
+        command.isStreaming = true;
+        command.status = "running";
+        command.startedAt = event.timestamp;
+        command.updatedAt = event.timestamp;
+      }
+      break;
+    case "command_chunk":
+      if (run.status !== "finished" && run.status !== "failed") {
+        run.status = "running";
+      }
+      if (command) {
+        const chunk = event.chunk ?? "";
+        if (chunk) {
+          const isStderr = event.stream === "stderr";
+          const decoratedRawChunk = `${isStderr ? STDERR_ANSI_PREFIX : ""}${chunk}`;
+          const readableChunk = isStderr
+            ? decoratedRawChunk
+            : toReadableCliChunk(chunk);
+
+          const rawWithCap = appendCliTimelineChunkWithCap(
+            command.rawOutput,
+            decoratedRawChunk,
+            command.truncated ?? false,
+          );
+          const readableWithCap = appendCliTimelineChunkWithCap(
+            command.readableOutput,
+            readableChunk,
+            command.truncated ?? false,
+          );
+          command.rawOutput = rawWithCap.output;
+          command.readableOutput = readableWithCap.output;
+          command.output = command.readableOutput;
+          command.truncated = rawWithCap.truncated || readableWithCap.truncated;
+        }
+        if (command.status !== "finished" && command.status !== "failed") {
+          command.isStreaming = true;
+          command.status = "running";
+        }
+        command.updatedAt = event.timestamp;
+      }
+      break;
+    case "command_finished":
+      if (command) {
+        if (typeof event.exitCode === "number") {
+          command.exitCode = event.exitCode;
+          command.status = event.exitCode === 0 ? "finished" : "failed";
+        } else if (command.status === "running") {
+          command.status = "finished";
+        }
+        command.isStreaming = false;
+        command.updatedAt = event.timestamp;
+        command.endedAt = event.timestamp;
+      }
+      break;
+    case "run_finished":
+      run.status = "finished";
+      run.error = undefined;
+      run.commands = run.commands.map((item) => ({
+        ...item,
+        isStreaming: false,
+        status: item.status === "running" ? "finished" : item.status,
+        endedAt: item.endedAt ?? event.timestamp,
+      }));
+      break;
+    case "run_failed":
+      run.status = "failed";
+      run.error = withTrimmed(event.chunk ?? "") || run.error;
+      run.commands = run.commands.map((item) => ({
+        ...item,
+        isStreaming: false,
+        status: item.status === "running" ? "failed" : item.status,
+        endedAt: item.endedAt ?? event.timestamp,
+      }));
+      break;
+    default:
+      break;
+  }
+
+  return next;
 }
 
 // ── Settings persistence ──────────────────────────────────────────────────────
@@ -763,6 +1255,7 @@ interface WorkflowDraft {
   decision: string;
   phase1Result: Phase1Result | null;
   phase2Result: Phase2Result | null;
+  frictionInboxDraft?: FrictionInboxDraft | null;
   workflowStep: WorkflowStep;
   savedAt: string;
 }
@@ -817,13 +1310,8 @@ export default function App() {
   const [requirement, setRequirement] = useState("");
   const [clarifications, setClarifications] = useState("");
   const [decision, setDecision] = useState("");
-  const [clarificationDirection, setClarificationDirection] = useState<string>(
-    DEFAULT_CLARIFICATION_DIRECTION,
-  );
-  const [clarificationConstraints, setClarificationConstraints] = useState("");
-  const [clarificationAnswers, setClarificationAnswers] = useState("");
-  const [clarificationPanelCollapsed, setClarificationPanelCollapsed] =
-    useState(false);
+  const [frictionInboxDraft, setFrictionInboxDraft] =
+    useState<FrictionInboxDraft | null>(null);
 
   const [phase1Result, setPhase1Result] = useState<Phase1Result | null>(null);
   const [phase2Result, setPhase2Result] = useState<Phase2Result | null>(null);
@@ -922,6 +1410,7 @@ export default function App() {
   const [phase12DiagnosticsError, setPhase12DiagnosticsError] = useState<
     string | null
   >(null);
+  const [cliTimelineRuns, setCliTimelineRuns] = useState<CliTimelineRun[]>([]);
   const [cliModelInventory, setCliModelInventory] = useState<
     Partial<Record<AgentCli, CliAliasModelInventory>>
   >({});
@@ -949,8 +1438,22 @@ export default function App() {
     phase3Dirty: false,
   });
 
+  const [showThreadScrollToBottom, setShowThreadScrollToBottom] =
+    useState(false);
   const scrollAnchorRef = useRef<HTMLDivElement | null>(null);
+  const threadSurfaceRef = useRef<HTMLDivElement | null>(null);
+  const threadViewportRef = useRef<HTMLElement | null>(null);
+  const threadAutoScrollRef = useRef(true);
   const onboardingAutoSelectAppliedRef = useRef(false);
+  const lastInventoryRefreshSignatureRef = useRef("");
+  const activeCliTimelineRequestIdsRef = useRef<Set<string>>(new Set());
+  const pendingCliEventsRef = useRef<CliCommandLogEvent[]>([]);
+  const cliEventFlushTimerRef = useRef<number | null>(null);
+  const handleLoadSessionRef = useRef<(id: string) => void>(() => {});
+  const handleRestartRef = useRef<() => void>(() => {});
+  const submitWorkflowInputRef = useRef<
+    (input: string) => Promise<void> | void
+  >(() => {});
 
   function focusComposerInput() {
     window.setTimeout(() => {
@@ -960,6 +1463,55 @@ export default function App() {
       textarea?.focus();
     }, 0);
   }
+
+  const getThreadViewport = useCallback(() => {
+    const current = threadViewportRef.current;
+    if (current && document.body.contains(current)) {
+      return current;
+    }
+    const surface = threadSurfaceRef.current;
+    if (!surface) return null;
+    const viewport = surface.querySelector<HTMLElement>(".aui-thread-viewport");
+    threadViewportRef.current = viewport;
+    return viewport;
+  }, []);
+
+  const syncThreadScrollState = useCallback(() => {
+    const viewport = getThreadViewport();
+    if (!viewport) {
+      threadAutoScrollRef.current = true;
+      setShowThreadScrollToBottom(false);
+      return;
+    }
+    const distanceToBottom =
+      viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+    const nearBottom =
+      distanceToBottom <= THREAD_SCROLL_BOTTOM_VISIBILITY_THRESHOLD_PX;
+    threadAutoScrollRef.current = nearBottom;
+    setShowThreadScrollToBottom(!nearBottom);
+  }, [getThreadViewport]);
+
+  const scrollThreadToBottom = useCallback(
+    (behavior: ScrollBehavior = "smooth") => {
+      const viewport = getThreadViewport();
+      if (viewport) {
+        viewport.scrollTo({
+          top: viewport.scrollHeight,
+          behavior,
+        });
+        threadAutoScrollRef.current = true;
+        setShowThreadScrollToBottom(false);
+        return;
+      }
+      scrollAnchorRef.current?.scrollIntoView({
+        behavior,
+        block: "end",
+      });
+      threadAutoScrollRef.current = true;
+      setShowThreadScrollToBottom(false);
+    },
+    [getThreadViewport],
+  );
 
   const isBusy =
     phase1Loading || phase2Loading || phase3Loading || datasetLoading;
@@ -1007,34 +1559,6 @@ export default function App() {
       ollamaHost,
     ],
   );
-  const phase1Agents = useMemo(
-    () => phase1AgentsFromResult(phase1Result, phase12AgentsSafe),
-    [phase1Result, phase12AgentsSafe],
-  );
-  const clarificationQuestions = useMemo(
-    () => collectTopQuestions(phase1Result, phase12AgentsSafe),
-    [phase1Result, phase12AgentsSafe],
-  );
-  const clarificationDirectionOptions = useMemo<
-    ClarificationDirectionOption[]
-  >(() => {
-    const agentOptions = phase1Agents.map((agent) => ({
-      value: agent.id,
-      label: agent.label,
-      description:
-        PHASE_AGENT_PRESETS.find((item) => item.id === agent.id)
-          ?.directionDescription ?? "Agent perspective.",
-    }));
-
-    return [
-      ...agentOptions,
-      {
-        value: DEFAULT_CLARIFICATION_DIRECTION,
-        label: "Hybrid",
-        description: "Combine multiple approaches with explicit tradeoffs.",
-      },
-    ];
-  }, [phase1Agents]);
   const onboardingCliAliases = useMemo<AgentCli[]>(() => {
     const aliases: AgentCli[] = [];
     phase12AgentsSafe.slice(0, 2).forEach((agent) => {
@@ -1119,22 +1643,143 @@ export default function App() {
     if (phase3AgentBCli === "opencode") return true;
     return false;
   }, [phase12AgentsSafe, phase3AgentACli, phase3AgentBCli]);
+  const visibleCliAliases = useMemo<AgentCli[]>(
+    () =>
+      uniqueCliAliases([
+        ...phase12AgentsSafe.map((agent) => agent.cli),
+        phase3AgentACli,
+        phase3AgentBCli,
+      ]),
+    [phase12AgentsSafe, phase3AgentACli, phase3AgentBCli],
+  );
   const cliCommandsSignature = useMemo(
     () =>
       AGENT_CLI_OPTIONS.map((alias) => `${alias}:${cliCommands[alias] ?? ""}`).join("|"),
     [cliCommands]
   );
+  const inventoryRefreshSignature = useMemo(() => {
+    const aliasesKey = [...visibleCliAliases].sort().join(",");
+    return `${aliasesKey}|${cliCommandsSignature}|${ollamaHost}`;
+  }, [visibleCliAliases, cliCommandsSignature, ollamaHost]);
+  const artifactRefreshTokens = useMemo(() => {
+    const tokens = new Map<string, string>();
+    conversation.forEach((item) => {
+      if (!isArtifactConversationItem(item)) return;
+
+      if (item.type === "cli_timeline") {
+        const run = cliTimelineRuns.find(
+          (entry) => entry.requestId === item.payload.requestId,
+        );
+        if (!run) return;
+        const commandStamp = run.commands
+          .map(
+            (command) => {
+              return `${command.commandId}:${command.status}:${command.exitCode ?? ""}:${command.updatedAt}:${command.rawOutput.length}:${command.readableOutput.length}`;
+            },
+          )
+          .join("|");
+        tokens.set(
+          item.id,
+          `${run.status}:${run.updatedAt}:${run.commands.length}:${commandStamp}`,
+        );
+        return;
+      }
+
+      if (item.type === "friction_phase1" || item.type === "friction_inbox") {
+        if (!frictionInboxDraft) return;
+        const resolvedCount = frictionInboxDraft.resolutions.filter(
+          (resolution) =>
+            Boolean(resolution.choice) &&
+            normalizeFrictionRationale(resolution.rationale).length >=
+              MIN_FRICTION_RATIONALE_LENGTH,
+        ).length;
+        tokens.set(
+          item.id,
+          `${frictionInboxDraft.status}:${frictionInboxDraft.direction ?? ""}:${phase2Loading ? "1" : "0"}:${resolvedCount}`,
+        );
+        return;
+      }
+
+      if (item.type === "decision_phase2") {
+        const structured = phase2Result?.humanDecisionStructured
+          ? JSON.stringify(phase2Result.humanDecisionStructured)
+          : "";
+        tokens.set(
+          item.id,
+          `${workflowStep}:${phase2Loading ? "1" : "0"}:${withTrimmed(decision)}:${structured}`,
+        );
+        return;
+      }
+
+      if (item.type === "validate_phase3") {
+        tokens.set(
+          item.id,
+          `${workflowStep}:${phase3Loading ? "1" : "0"}:${withTrimmed(repoPath)}:${withTrimmed(baseBranch)}:${consentedToDataset ? "1" : "0"}:${withTrimmed(phase3FormError ?? "")}`,
+        );
+        return;
+      }
+
+      if (item.type === "workflow_done") {
+        tokens.set(
+          item.id,
+          `${workflowStep}:${saveLocalLoading ? "1" : "0"}:${datasetLoading ? "1" : "0"}:${withTrimmed(saveStatus ?? "")}`,
+        );
+      }
+    });
+    return tokens;
+  }, [
+    baseBranch,
+    cliTimelineRuns,
+    consentedToDataset,
+    conversation,
+    datasetLoading,
+    decision,
+    frictionInboxDraft,
+    phase2Loading,
+    phase2Result,
+    phase3FormError,
+    phase3Loading,
+    repoPath,
+    saveLocalLoading,
+    saveStatus,
+    workflowStep,
+  ]);
+  const previousAssistantThreadMessagesRef = useRef<
+    Map<string, { id: string; role: "assistant" | "user"; content: string }>
+  >(new Map());
   const assistantThreadMessages = useMemo(() => {
-    return conversation.map(conversationItemToAssistantThreadMessage).filter(
-      (
+    const previousById = previousAssistantThreadMessagesRef.current;
+    const nextById = new Map<
+      string,
+      { id: string; role: "assistant" | "user"; content: string }
+    >();
+    const nextMessages: { id: string; role: "assistant" | "user"; content: string }[] = [];
+
+    conversation.forEach((item) => {
+      const mapped = conversationItemToAssistantThreadMessage(
         item,
-      ): item is {
-        id: string;
-        role: "assistant" | "user";
-        content: string;
-      } => item !== null,
-    );
-  }, [conversation]);
+        artifactRefreshTokens,
+      );
+      if (!mapped) return;
+
+      const previous = previousById.get(mapped.id);
+      if (
+        previous &&
+        previous.role === mapped.role &&
+        previous.content === mapped.content
+      ) {
+        nextMessages.push(previous);
+        nextById.set(previous.id, previous);
+        return;
+      }
+
+      nextMessages.push(mapped);
+      nextById.set(mapped.id, mapped);
+    });
+
+    previousAssistantThreadMessagesRef.current = nextById;
+    return nextMessages;
+  }, [conversation, artifactRefreshTokens]);
   const assistantThreadListItems = useMemo(() => {
     return recentSessions.map((session) => ({
       status: "regular" as const,
@@ -1142,42 +1787,421 @@ export default function App() {
       title: withTrimmed(session.requirementPreview) || session.id.slice(0, 8),
     }));
   }, [recentSessions]);
-  const artifactConversationItems = useMemo(() => {
-    return conversation.filter(
-      (item) =>
-        item.type === "task" || item.type === "plan" || item.type === "code",
-    );
+  const conversationArtifactById = useMemo(() => {
+    const byId = new Map<string, ConversationItem>();
+    conversation.forEach((item) => {
+      if (isArtifactConversationItem(item)) {
+        byId.set(item.id, item);
+      }
+    });
+    return byId;
   }, [conversation]);
-  const assistantThreadRuntime = useExternalStoreRuntime({
-    isRunning: isBusy,
-    messages: assistantThreadMessages,
-    adapters: {
-      threadList: {
-        threadId: routeState.sessionId ?? undefined,
-        threads: assistantThreadListItems,
-        onSwitchToThread: async (threadId: string) => {
-          handleLoadSession(threadId);
-        },
-        onSwitchToNewThread: async () => {
-          handleRestart();
-        },
-      },
+  const renderConversationArtifact = useCallback(
+    (item: ConversationItem) => {
+      if (item.type === "cli_timeline") {
+        const run = cliTimelineRuns.find(
+          (entry) => entry.requestId === item.payload.requestId,
+        );
+        if (!run) {
+          return null;
+        }
+        return <CommandTimelineCard run={run} />;
+      }
+
+      if (item.type === "friction_phase1") {
+        const sourcePhase1 = item.payload.phase1;
+        if (!sourcePhase1 || !frictionInboxDraft) {
+          return (
+            <p className="text-xs text-friction-muted">
+              Preparing friction points…
+            </p>
+          );
+        }
+        const cardAgents = phase1AgentsFromResult(sourcePhase1, phase12AgentsSafe);
+        return (
+          <FrictionPhase1Inline
+            phase1={sourcePhase1}
+            agents={cardAgents}
+            draft={frictionInboxDraft}
+            submitting={phase2Loading}
+            onDirectionChange={updateFrictionDirection}
+            onResolutionChange={updateFrictionResolution}
+            onSubmit={(draftOverride) => {
+              void submitFrictionInbox(draftOverride);
+            }}
+          />
+        );
+      }
+
+      if (item.type === "friction_inbox") {
+        const sourcePlan = conversationArtifactById.get(
+          item.payload.sourcePlanItemId,
+        );
+        const sourcePhase1 =
+          sourcePlan?.type === "plan" &&
+          sourcePlan.payload.phase === 1 &&
+          sourcePlan.payload.phase1
+            ? sourcePlan.payload.phase1
+            : phase1Result;
+        if (!sourcePhase1 || !frictionInboxDraft) {
+          return (
+            <p className="text-xs text-friction-muted">
+              Preparing friction points…
+            </p>
+          );
+        }
+        const cardAgents = phase1AgentsFromResult(sourcePhase1, phase12AgentsSafe);
+        return (
+          <FrictionInboxCard
+            phase1={sourcePhase1}
+            agents={cardAgents}
+            draft={frictionInboxDraft}
+            submitting={phase2Loading}
+            onDirectionChange={updateFrictionDirection}
+            onResolutionChange={updateFrictionResolution}
+            onSubmit={(draftOverride) => {
+              void submitFrictionInbox(draftOverride);
+            }}
+          />
+        );
+      }
+
+      if (item.type === "decision_phase2") {
+        const p2Agents = phase2AgentsFromResult(item.payload.phase2, phase12AgentsSafe);
+        if (p2Agents.length < 2) {
+          return (
+            <p className="text-xs text-friction-muted">
+              Preparing arbitration…
+            </p>
+          );
+        }
+        return (
+          <DecisionPhase2Inline
+            plans={p2Agents}
+            disabled={isBusy}
+            onApplyDecision={(note, structured) => {
+              handleDecisionStep(note, structured);
+            }}
+          />
+        );
+      }
+
+      if (item.type === "validate_phase3") {
+        return (
+          <Phase3ValidateInline
+            repoPath={repoPath}
+            baseBranch={baseBranch}
+            consentedToDataset={consentedToDataset}
+            running={phase3Loading}
+            error={phase3FormError}
+            onRepoPathChange={(value) => {
+              setRepoPath(value);
+              setUnsavedState((prev) => ({ ...prev, phase3Dirty: true }));
+            }}
+            onBaseBranchChange={(value) => {
+              setBaseBranch(value);
+              setUnsavedState((prev) => ({ ...prev, phase3Dirty: true }));
+            }}
+            onDatasetOptInChange={(value) => {
+              setConsentedToDataset(value);
+              setUnsavedState((prev) => ({ ...prev, phase3Dirty: true }));
+            }}
+            onRun={() => {
+              void handlePhase3Step();
+            }}
+          />
+        );
+      }
+
+      if (item.type === "workflow_done") {
+        return (
+          <WorkflowDoneInline
+            canPersistSession={canPersistSession}
+            saveLocalLoading={saveLocalLoading}
+            datasetLoading={datasetLoading}
+            onSave={() => {
+              void handleSaveSessionLocal();
+            }}
+            onExportSession={handleExportSession}
+            onExportDataset={() => {
+              void handleExportDataset();
+            }}
+            onNewThread={handleRestart}
+          />
+        );
+      }
+
+      if (item.type === "task") {
+        return (
+          <article className="chat-task-card">
+            <p className="text-sm font-semibold text-friction-text">
+              {item.payload.title}
+            </p>
+            {item.payload.description ? (
+              <p className="mt-1 text-sm text-friction-muted">
+                {item.payload.description}
+              </p>
+            ) : null}
+            <SuggestionChips
+              suggestions={item.payload.suggestions ?? []}
+              onPick={handleSuggestionPick}
+            />
+          </article>
+        );
+      }
+
+      if (item.type === "plan") {
+        if (item.payload.phase === 1 && item.payload.phase1) {
+          const p1 = item.payload.phase1;
+          const p1Agents = phase1AgentsFromResult(p1, phase12AgentsSafe);
+          return (
+            <PlanCard
+              title="Phase 1 — Multi-agent interpretation"
+              summary={`${p1.divergences.length} friction point${p1.divergences.length !== 1 ? "s" : ""} · ${p1Agents.length} agent${p1Agents.length > 1 ? "s" : ""}`}
+              defaultOpen={false}
+            >
+              <DivergenceBlock
+                title="Friction points"
+                divergences={p1.divergences}
+                leftLabel={p1Agents[0]?.label ?? "Agent A"}
+                rightLabel={p1Agents[1]?.label ?? "Agent B"}
+              />
+              <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                {p1Agents.map((agent, index) => (
+                  <AgentCard
+                    key={`${agent.id}-${index}`}
+                    title={agent.label}
+                    tone={index % 2 === 0 ? "steel" : "ember"}
+                    payload={agent.response}
+                    fields={[
+                      "interpretation",
+                      "assumptions",
+                      "risks",
+                      "questions",
+                      "approach",
+                    ]}
+                    model={`cli:${agent.cli}`}
+                  />
+                ))}
+              </div>
+            </PlanCard>
+          );
+        }
+
+        if (item.payload.phase === 2 && item.payload.phase2) {
+          const p2 = item.payload.phase2;
+          const p2Agents = phase2AgentsFromResult(p2, phase12AgentsSafe);
+          return (
+            <PlanCard
+              title="Phase 2 — Multi-agent plans"
+              summary={`${p2.divergences.length} plan divergence${p2.divergences.length !== 1 ? "s" : ""} · ${p2Agents.length} plan variants`}
+              defaultOpen={false}
+            >
+              <DivergenceBlock
+                title="Plan divergences"
+                divergences={p2.divergences}
+                leftLabel={p2Agents[0]?.label ?? "Agent A"}
+                rightLabel={p2Agents[1]?.label ?? "Agent B"}
+              />
+              <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                {p2Agents.map((agent, index) => (
+                  <PlanPanel
+                    key={`${agent.id}-${index}`}
+                    title={agent.label}
+                    tone={index % 2 === 0 ? "steel" : "ember"}
+                    plan={agent.plan}
+                    divergences={p2.divergences}
+                  />
+                ))}
+              </div>
+            </PlanCard>
+          );
+        }
+      }
+
+      if (item.type === "code") {
+        return (
+          <CodeCard
+            title="Phase 3 output"
+            summary={`Repo: ${item.payload.repoPath} · Branch: ${item.payload.baseBranch} · Confidence ${formatPercent(item.payload.phase3.confidenceScore)}`}
+          >
+            <DiffViewer phase3={item.payload.phase3} />
+          </CodeCard>
+        );
+      }
+
+      return null;
     },
-    onNew: async (message: { content: unknown }) => {
+    [
+      cliTimelineRuns,
+      conversationArtifactById,
+      frictionInboxDraft,
+      handleSuggestionPick,
+      phase1Result,
+      phase12AgentsSafe,
+      phase2Loading,
+      phase3FormError,
+      phase3Loading,
+      repoPath,
+      baseBranch,
+      consentedToDataset,
+      canPersistSession,
+      saveLocalLoading,
+      datasetLoading,
+      handleExportDataset,
+      handleExportSession,
+      handleRestart,
+      handleSaveSessionLocal,
+      handleDecisionStep,
+      submitFrictionInbox,
+      updateFrictionDirection,
+      updateFrictionResolution,
+      isBusy,
+      handlePhase3Step,
+    ],
+  );
+  const conversationArtifactByIdRef = useRef(conversationArtifactById);
+  const renderConversationArtifactRef = useRef(renderConversationArtifact);
+
+  useEffect(() => {
+    conversationArtifactByIdRef.current = conversationArtifactById;
+  }, [conversationArtifactById]);
+
+  useEffect(() => {
+    renderConversationArtifactRef.current = renderConversationArtifact;
+  }, [renderConversationArtifact]);
+
+  const AssistantThreadText = useCallback(
+    (props: any) => {
+      const raw =
+        (typeof props?.text === "string" && props.text) ||
+        (typeof props?.children === "string" && props.children) ||
+        "";
+      const artifactId = parseThreadArtifactMarker(raw);
+      if (artifactId) {
+        const item = conversationArtifactByIdRef.current.get(artifactId);
+        if (!item) {
+          return null;
+        }
+        const rendered = renderConversationArtifactRef.current(item);
+        if (rendered) {
+          return (
+            <div className="thread-artifact-root" data-artifact-type={item.type}>
+              {rendered}
+            </div>
+          );
+        }
+        return (
+          <div className="thread-artifact-root">
+            <p className="text-xs text-friction-muted">Preparing artifact output…</p>
+          </div>
+        );
+      }
+      return (
+        <div className="thread-assistant-text">
+          <MarkdownText {...props} />
+        </div>
+      );
+    },
+    [],
+  );
+  useEffect(() => {
+    handleLoadSessionRef.current = handleLoadSession;
+    handleRestartRef.current = handleRestart;
+    submitWorkflowInputRef.current = submitWorkflowInput;
+  });
+
+  const handleThreadSwitchToThread = useCallback(async (threadId: string) => {
+    handleLoadSessionRef.current(threadId);
+  }, []);
+
+  const handleThreadSwitchToNewThread = useCallback(async () => {
+    handleRestartRef.current();
+  }, []);
+
+  const handleThreadNewMessage = useCallback(
+    async (message: { content: unknown }) => {
       const text = extractThreadTextContent(message.content);
       if (!text) return;
-      await submitWorkflowInput(text);
+      await submitWorkflowInputRef.current(text);
     },
-    convertMessage: (message: {
-      id: string;
-      role: "assistant" | "user";
-      content: string;
-    }) => ({
-      id: message.id,
-      role: message.role,
-      content: message.content,
+    [],
+  );
+
+  const assistantThreadStoreAdapter = useMemo(
+    () => ({
+      isRunning: isBusy,
+      messages: assistantThreadMessages,
+      adapters: {
+        threadList: {
+          threadId: routeState.sessionId ?? undefined,
+          threads: assistantThreadListItems,
+          onSwitchToThread: handleThreadSwitchToThread,
+          onSwitchToNewThread: handleThreadSwitchToNewThread,
+        },
+      },
+      onNew: handleThreadNewMessage,
+      convertMessage: (message: {
+        id: string;
+        role: "assistant" | "user";
+        content: string;
+      }) => ({
+        id: message.id,
+        role: message.role,
+        content: message.content,
+      }),
     }),
-  });
+    [
+      isBusy,
+      assistantThreadMessages,
+      routeState.sessionId,
+      assistantThreadListItems,
+      handleThreadSwitchToThread,
+      handleThreadSwitchToNewThread,
+      handleThreadNewMessage,
+    ],
+  );
+
+  const assistantThreadRuntime = useExternalStoreRuntime(
+    assistantThreadStoreAdapter,
+  );
+  const threadWelcome = useMemo(
+    () => ({
+      message:
+        "Describe your requirement. I will run phase 1 automatically after you send.",
+    }),
+    [],
+  );
+  const threadAssistantMessageConfig = useMemo(
+    () => ({
+      allowReload: false,
+      allowCopy: true,
+      allowSpeak: false,
+      allowFeedbackPositive: false,
+      allowFeedbackNegative: false,
+      components: {
+        Text: AssistantThreadText,
+      },
+    }),
+    [AssistantThreadText],
+  );
+  const threadComponents = useMemo(
+    () => ({
+      Composer: () => null,
+      AssistantMessage: AssistantMessageArtifactAware,
+    }),
+    [],
+  );
+  const threadStrings = useMemo(
+    () => ({
+      composer: {
+        input: {
+          placeholder: PROMPT_HINTS[workflowStep],
+        },
+      },
+    }),
+    [workflowStep],
+  );
 
   function updateRoute(
     mutator: (prev: RouteState) => RouteState,
@@ -1245,6 +2269,60 @@ export default function App() {
     });
   }
 
+  function resetCliTimelineRuns() {
+    activeCliTimelineRequestIdsRef.current.clear();
+    pendingCliEventsRef.current = [];
+    if (cliEventFlushTimerRef.current !== null) {
+      window.clearTimeout(cliEventFlushTimerRef.current);
+      cliEventFlushTimerRef.current = null;
+    }
+    setCliTimelineRuns([]);
+  }
+
+  function startCliTimelineRun(phase: 1 | 2 | 3, step: WorkflowStep): string {
+    const requestId = crypto.randomUUID();
+    activeCliTimelineRequestIdsRef.current.add(requestId);
+    setCliTimelineRuns((previous) => [
+      ...previous,
+      createCliTimelineRun(requestId, phase),
+    ]);
+    appendConversation({
+      id: crypto.randomUUID(),
+      type: "cli_timeline",
+      payload: {
+        requestId,
+        phase,
+        meta: metaFor(step),
+      },
+    });
+    return requestId;
+  }
+
+  function finalizeCliTimelineRun(
+    requestId: string,
+    status: "finished" | "failed",
+    error?: string,
+  ) {
+    activeCliTimelineRequestIdsRef.current.delete(requestId);
+    setCliTimelineRuns((previous) =>
+      previous.map((run) => {
+        if (run.requestId !== requestId) return run;
+        return {
+          ...run,
+          status,
+          updatedAt: new Date().toISOString(),
+          error: status === "failed" ? withTrimmed(error ?? "") || run.error : undefined,
+          commands: run.commands.map((command) => ({
+            ...command,
+            isStreaming: false,
+            status: command.status === "running" ? status : command.status,
+            endedAt: command.endedAt ?? new Date().toISOString(),
+          })),
+        };
+      }),
+    );
+  }
+
   function appendTask(
     title: string,
     step: WorkflowStep,
@@ -1262,6 +2340,104 @@ export default function App() {
         meta: metaFor(step),
       },
     });
+  }
+
+  function updateFrictionResolution(
+    frictionKey: string,
+    patch: Partial<{ choice: FrictionResolutionChoice; rationale: string }>,
+  ) {
+    setUnsavedState((previous) => ({ ...previous, phase2Dirty: true }));
+    setFrictionInboxDraft((previous) => {
+      if (!previous) return previous;
+      const nextResolutions = previous.resolutions.map((item) => {
+        if (item.key !== frictionKey) return item;
+        const normalizedChoice = normalizeFrictionChoice(patch.choice);
+        return {
+          ...item,
+          choice: normalizedChoice ?? item.choice,
+          rationale:
+            typeof patch.rationale === "string" ? patch.rationale : item.rationale,
+        };
+      });
+      const nextDraft: FrictionInboxDraft = {
+        ...previous,
+        resolutions: nextResolutions,
+      };
+      if (phase1Result) {
+        nextDraft.status = computeFrictionGateState(phase1Result, nextDraft).ready
+          ? "ready"
+          : "draft";
+      } else {
+        nextDraft.status = "draft";
+      }
+      if (phase1Result && !phase2Result) {
+        writeDraft({
+          requirement,
+          clarifications,
+          decision,
+          phase1Result,
+          phase2Result: null,
+          frictionInboxDraft: nextDraft,
+          workflowStep: "clarifications",
+          savedAt: new Date().toISOString(),
+        });
+      }
+      return nextDraft;
+    });
+  }
+
+  function updateFrictionDirection(direction?: FrictionResolutionChoice) {
+    setUnsavedState((previous) => ({ ...previous, phase2Dirty: true }));
+    setFrictionInboxDraft((previous) => {
+      if (!previous) return previous;
+      const normalizedDirection = normalizeFrictionChoice(direction);
+      const nextDraft: FrictionInboxDraft = {
+        ...previous,
+        direction: normalizedDirection,
+      };
+      if (phase1Result && !phase2Result) {
+        writeDraft({
+          requirement,
+          clarifications,
+          decision,
+          phase1Result,
+          phase2Result: null,
+          frictionInboxDraft: nextDraft,
+          workflowStep: "clarifications",
+          savedAt: new Date().toISOString(),
+        });
+      }
+      return nextDraft;
+    });
+  }
+
+  async function submitFrictionInbox(draftOverride?: FrictionInboxDraft) {
+    const effectiveDraft = draftOverride ?? frictionInboxDraft;
+    if (!phase1Result || !requirement || !effectiveDraft) {
+      appendError("Run requirement analysis first.", "clarifications");
+      transitionWorkflow("requirement");
+      return;
+    }
+
+    const gate = computeFrictionGateState(phase1Result, effectiveDraft);
+    if (!gate.ready) {
+      appendError(
+        "Resolve every friction point with a choice and rationale before running Phase 2.",
+        "clarifications",
+      );
+      return;
+    }
+
+    if (draftOverride) {
+      setFrictionInboxDraft(draftOverride);
+    }
+    const phase1Agents = phase1AgentsFromResult(phase1Result, phase12AgentsSafe);
+    const clarificationsText = buildClarificationsFromFrictionInbox(
+      phase1Result,
+      effectiveDraft,
+      phase1Agents,
+    );
+    await handleClarificationsStep(clarificationsText);
   }
 
   function validateRequirement(value: string): string | null {
@@ -1529,8 +2705,12 @@ export default function App() {
       forceRefresh?: boolean;
     },
   ) {
-    const targets = Array.from(new Set(aliases));
+    const targets = uniqueCliAliases(aliases);
     if (targets.length === 0) return;
+    const startedAtByAlias = new Map<AgentCli, number>();
+    targets.forEach((alias) => {
+      startedAtByAlias.set(alias, performance.now());
+    });
 
     setCliModelInventoryLoading((previous) => {
       const next = { ...previous };
@@ -1553,20 +2733,37 @@ export default function App() {
 
       settled.forEach((result, index) => {
         const alias = targets[index];
+        const durationMs = Math.max(
+          1,
+          Math.round(performance.now() - (startedAtByAlias.get(alias) ?? performance.now())),
+        );
+        const fetchedAt = new Date().toISOString();
         if (result.status === "fulfilled") {
-          inventories.push(result.value);
+          inventories.push({
+            ...result.value,
+            fetchDurationMs: result.value.fetchDurationMs ?? durationMs,
+            fetchedAt: result.value.fetchedAt ?? fetchedAt,
+          });
           return;
         }
+        const previousInventory = cliModelInventory[alias];
+        const errorReason = extractErrorMessage(result.reason);
+        const canReusePreviousModels = Boolean(previousInventory?.models?.length);
         inventories.push({
           alias,
-          models: [],
-          source: "fallback",
-          reason: extractErrorMessage(result.reason),
-          stale: false,
-          lastUpdatedAt: new Date().toISOString(),
+          models: canReusePreviousModels ? previousInventory?.models ?? [] : [],
+          source: canReusePreviousModels ? "cache" : "fallback",
+          reason: canReusePreviousModels
+            ? `${errorReason} | served previous UI cache`
+            : errorReason,
+          stale: canReusePreviousModels,
+          lastUpdatedAt: fetchedAt,
+          providerMode: previousInventory?.providerMode,
+          fetchDurationMs: durationMs,
+          fetchedAt,
         });
         if (alias === "opencode") {
-          opencodeFailure = extractErrorMessage(result.reason);
+          opencodeFailure = errorReason;
         }
       });
 
@@ -1652,7 +2849,7 @@ export default function App() {
     };
     const modelSegments: string[] = [];
     if (mode === "phase12") {
-      phase12AgentsSafe.slice(0, 2).forEach((agent) => {
+      phase12AgentsSafe.forEach((agent) => {
         const model = resolvedModelForAgent(agent.id, agent.cli);
         if (model) {
           modelSegments.push(`${agent.id}:${model}`);
@@ -1720,35 +2917,6 @@ export default function App() {
       }
     });
     return entries;
-  }
-
-  function formatPhase12RuntimeDiagnostics(
-    diagnostic: Phase12RuntimeDiagnostic,
-  ): string {
-    if (diagnostic.agents.length === 0) {
-      return "No phase 1/2 agents found in runtime diagnostics.";
-    }
-
-    return diagnostic.agents
-      .map((agent) => {
-        const runtimeReady = agent.runtimeReady ?? true;
-        const path = agent.resolvedBinaryPath ?? "not found";
-        const model = agent.resolvedModel?.trim()
-          ? agent.resolvedModel.trim()
-          : "default";
-        const modelSource = agent.resolvedModelSource?.trim()
-          ? agent.resolvedModelSource.trim()
-          : "default";
-        const readiness = agent.requiresAuth
-          ? ` · ready=${runtimeReady ? "yes" : "no"} (${agent.readinessSource ?? "none"})`
-          : "";
-        const readinessReason =
-          !runtimeReady && agent.readinessReason
-            ? ` · reason=${agent.readinessReason}`
-            : "";
-        return `${agent.label}: selected=${agent.selectedCli} → command='${agent.resolvedCommand}' (${agent.resolvedCommandSource}) · family=${agent.resolvedFamily} · path=${path} · model=${model} (${modelSource})${readiness}${readinessReason}`;
-      })
-      .join("\n");
   }
 
   function formatPhase12MismatchError(
@@ -1840,47 +3008,6 @@ export default function App() {
     return true;
   }
 
-  function handleInsertClarificationTemplate() {
-    const directionLabel =
-      clarificationDirectionOptions.find(
-        (option) => option.value === clarificationDirection,
-      )?.label ?? "Hybrid";
-    const template = buildClarificationTemplate(
-      directionLabel,
-      clarificationConstraints,
-      clarificationAnswers,
-      clarificationQuestions,
-    );
-
-    setComposerText((previous) => {
-      const trimmed = withTrimmed(previous);
-      if (!trimmed) return template;
-      return `${trimmed}\n\n${template}`;
-    });
-    focusComposerInput();
-  }
-
-  function handleInsertDecisionTemplate(
-    note: string,
-    structured: HumanDecisionStructured,
-  ) {
-    setComposerText((previous) => {
-      const trimmed = withTrimmed(previous);
-      if (!trimmed) return note;
-      return `${trimmed}\n\n${note}`;
-    });
-    setPhase2Result((previous) =>
-      previous
-        ? {
-          ...previous,
-          humanDecisionStructured: structured,
-        }
-        : previous,
-    );
-    setUnsavedState((prev) => ({ ...prev, phase2Dirty: true }));
-    focusComposerInput();
-  }
-
   async function handleRequirementStep(input: string) {
     if (enforceCliSetup("requirement")) {
       return;
@@ -1907,9 +3034,7 @@ export default function App() {
     setRequirement(input);
     setClarifications("");
     setDecision("");
-    setClarificationDirection(DEFAULT_CLARIFICATION_DIRECTION);
-    setClarificationConstraints("");
-    setClarificationAnswers("");
+    setFrictionInboxDraft(null);
     setPhase1Result(null);
     setPhase2Result(null);
     setPhase3Result(null);
@@ -1934,12 +3059,6 @@ export default function App() {
       const message = formatPhase12SelectionMismatchError(selectionMismatches);
       setError(message);
       appendError(message, "requirement");
-      appendStatus(
-        "Runtime diagnostics",
-        "requirement",
-        formatPhase12RuntimeDiagnostics(runtimeDiagnostic),
-        false,
-      );
       setSettingsOpen(true);
       return;
     }
@@ -1948,12 +3067,6 @@ export default function App() {
       const message = formatPhase12MismatchError(runtimeDiagnostic);
       setError(message);
       appendError(message, "requirement");
-      appendStatus(
-        "Runtime diagnostics",
-        "requirement",
-        formatPhase12RuntimeDiagnostics(runtimeDiagnostic),
-        false,
-      );
       setSettingsOpen(true);
       return;
     }
@@ -1963,12 +3076,6 @@ export default function App() {
       const message = formatPhase12ReadinessError(readinessFailures);
       setError(message);
       appendError(message, "requirement");
-      appendStatus(
-        "Runtime diagnostics",
-        "requirement",
-        formatPhase12RuntimeDiagnostics(runtimeDiagnostic),
-        false,
-      );
       setSettingsOpen(true);
       return;
     }
@@ -1985,14 +3092,19 @@ export default function App() {
       "Generating multi-agent interpretations…",
       true,
     );
+    const phase1StreamRequestId = startCliTimelineRun(1, "requirement");
     setPhase1Loading(true);
 
     try {
-      const result = await runPhase1(input, runtimeSettings);
+      const result = await runPhase1(input, runtimeSettings, {
+        streamRequestId: phase1StreamRequestId,
+      });
       const resultAgents = phase1AgentsFromResult(result, phase12AgentsSafe);
-      const resultQuestions = collectTopQuestions(result, phase12AgentsSafe);
+      const nextFrictionDraft = createFrictionInboxDraft(result);
       setPhase1Result(result);
+      setFrictionInboxDraft(nextFrictionDraft);
       setUnsavedState((prev) => ({ ...prev, phase1Dirty: false }));
+      finalizeCliTimelineRun(phase1StreamRequestId, "finished");
 
       // Auto-save draft after phase 1
       writeDraft({
@@ -2001,6 +3113,7 @@ export default function App() {
         decision: "",
         phase1Result: result,
         phase2Result: null,
+        frictionInboxDraft: nextFrictionDraft,
         workflowStep: "clarifications",
         savedAt: new Date().toISOString(),
       });
@@ -2009,47 +3122,27 @@ export default function App() {
 
       appendText(
         "assistant",
-        buildPhase1CompletionMessage(result, resultAgents, resultQuestions),
+        buildPhase1CompletionMessage(result, resultAgents),
         "clarifications",
       );
       appendConversation({
         id: crypto.randomUUID(),
-        type: "plan",
+        type: "friction_phase1",
         payload: {
           phase: 1,
           phase1: result,
           meta: metaFor("clarifications"),
         },
       });
-      appendTask(
-        "Write your clarification",
-        "clarifications",
-        "Use the helper below, insert the template, complete it, then send.",
-        SUGGESTION_SETS.clarifications,
-      );
     } catch (caught) {
       const message = extractErrorMessage(caught);
+      finalizeCliTimelineRun(phase1StreamRequestId, "failed", message);
       setError(`Phase 1 failed: ${message}`);
       appendError(`Phase 1 failed: ${message}`, "requirement");
-      if (runtimeDiagnostic) {
-        appendStatus(
-          "Runtime diagnostics",
-          "requirement",
-          formatPhase12RuntimeDiagnostics(runtimeDiagnostic),
-          false,
-        );
-      } else {
-        try {
-          const fallbackDiagnostics = await diagnosePhase12BeforeRun();
-          appendStatus(
-            "Runtime diagnostics",
-            "requirement",
-            formatPhase12RuntimeDiagnostics(fallbackDiagnostics),
-            false,
-          );
-        } catch {
+      if (!runtimeDiagnostic) {
+        void diagnosePhase12BeforeRun().catch(() => {
           // ignore diagnostics fallback errors in phase failure path
-        }
+        });
       }
     } finally {
       setPhase1Loading(false);
@@ -2089,12 +3182,6 @@ export default function App() {
       const message = formatPhase12SelectionMismatchError(selectionMismatches);
       setError(message);
       appendError(message, "clarifications");
-      appendStatus(
-        "Runtime diagnostics",
-        "clarifications",
-        formatPhase12RuntimeDiagnostics(runtimeDiagnostic),
-        false,
-      );
       setSettingsOpen(true);
       return;
     }
@@ -2103,12 +3190,6 @@ export default function App() {
       const message = formatPhase12MismatchError(runtimeDiagnostic);
       setError(message);
       appendError(message, "clarifications");
-      appendStatus(
-        "Runtime diagnostics",
-        "clarifications",
-        formatPhase12RuntimeDiagnostics(runtimeDiagnostic),
-        false,
-      );
       setSettingsOpen(true);
       return;
     }
@@ -2118,12 +3199,6 @@ export default function App() {
       const message = formatPhase12ReadinessError(readinessFailures);
       setError(message);
       appendError(message, "clarifications");
-      appendStatus(
-        "Runtime diagnostics",
-        "clarifications",
-        formatPhase12RuntimeDiagnostics(runtimeDiagnostic),
-        false,
-      );
       setSettingsOpen(true);
       return;
     }
@@ -2140,13 +3215,25 @@ export default function App() {
       "Generating multi-agent plans…",
       true,
     );
+    const phase2StreamRequestId = startCliTimelineRun(2, "clarifications");
     setPhase2Loading(true);
 
     try {
-      const result = await runPhase2(requirement, input, runtimeSettings);
+      const result = await runPhase2(requirement, input, runtimeSettings, {
+        streamRequestId: phase2StreamRequestId,
+      });
       const resultPlans = phase2AgentsFromResult(result, phase12AgentsSafe);
       setPhase2Result(result);
+      setFrictionInboxDraft((previous) =>
+        previous
+          ? {
+              ...previous,
+              status: "submitted",
+            }
+          : previous,
+      );
       setUnsavedState((prev) => ({ ...prev, phase2Dirty: false }));
+      finalizeCliTimelineRun(phase2StreamRequestId, "finished");
 
       // Auto-save draft after phase 2
       writeDraft({
@@ -2155,6 +3242,12 @@ export default function App() {
         decision: "",
         phase1Result,
         phase2Result: result,
+        frictionInboxDraft: frictionInboxDraft
+          ? {
+              ...frictionInboxDraft,
+              status: "submitted",
+            }
+          : null,
         workflowStep: "decision",
         savedAt: new Date().toISOString(),
       });
@@ -2175,42 +3268,34 @@ export default function App() {
           meta: metaFor("decision"),
         },
       });
-      appendTask(
-        "Arbitration decision",
-        "decision",
-        `Use the scorecard helper: rate each plan (4 criteria), choose winner/hybrid, insert template, then send.`,
-        SUGGESTION_SETS.decision,
-      );
+      appendConversation({
+        id: crypto.randomUUID(),
+        type: "decision_phase2",
+        payload: {
+          phase: 2,
+          phase2: result,
+          meta: metaFor("decision"),
+        },
+      });
     } catch (caught) {
       const message = extractErrorMessage(caught);
+      finalizeCliTimelineRun(phase2StreamRequestId, "failed", message);
       setError(`Phase 2 failed: ${message}`);
       appendError(`Phase 2 failed: ${message}`, "clarifications");
-      if (runtimeDiagnostic) {
-        appendStatus(
-          "Runtime diagnostics",
-          "clarifications",
-          formatPhase12RuntimeDiagnostics(runtimeDiagnostic),
-          false,
-        );
-      } else {
-        try {
-          const fallbackDiagnostics = await diagnosePhase12BeforeRun();
-          appendStatus(
-            "Runtime diagnostics",
-            "clarifications",
-            formatPhase12RuntimeDiagnostics(fallbackDiagnostics),
-            false,
-          );
-        } catch {
+      if (!runtimeDiagnostic) {
+        void diagnosePhase12BeforeRun().catch(() => {
           // ignore diagnostics fallback errors in phase failure path
-        }
+        });
       }
     } finally {
       setPhase2Loading(false);
     }
   }
 
-  function handleDecisionStep(input: string) {
+  function handleDecisionStep(
+    input: string,
+    structured?: HumanDecisionStructured,
+  ) {
     if (!phase2Result) {
       appendError("Run planning first.", "decision");
       transitionWorkflow("clarifications");
@@ -2224,7 +3309,13 @@ export default function App() {
     }
 
     setDecision(input);
-    setPhase2Result({ ...phase2Result, humanDecision: input });
+    const updatedPhase2Result: Phase2Result = {
+      ...phase2Result,
+      humanDecision: input,
+      humanDecisionStructured:
+        structured ?? phase2Result.humanDecisionStructured,
+    };
+    setPhase2Result(updatedPhase2Result);
     setUnsavedState((prev) => ({ ...prev, phase2Dirty: true }));
 
     // Auto-save draft with decision recorded
@@ -2233,7 +3324,8 @@ export default function App() {
       clarifications,
       decision: input,
       phase1Result,
-      phase2Result: { ...phase2Result, humanDecision: input },
+      phase2Result: updatedPhase2Result,
+      frictionInboxDraft,
       workflowStep: "phase3_config",
       savedAt: new Date().toISOString(),
     });
@@ -2242,15 +3334,17 @@ export default function App() {
 
     appendText(
       "assistant",
-      "Decision stored. Set repository path and base branch below, then send to run adversarial validation.",
+      "Decision stored. Complete the inline validation block below, then run Phase 3.",
       "phase3_config",
     );
-    appendTask(
-      "Configure validation",
-      "phase3_config",
-      "Repository path is required before running phase 3.",
-      SUGGESTION_SETS.phase3_config,
-    );
+    appendConversation({
+      id: crypto.randomUUID(),
+      type: "validate_phase3",
+      payload: {
+        phase: 3,
+        meta: metaFor("phase3_config"),
+      },
+    });
   }
 
   async function handlePhase3Step() {
@@ -2290,23 +3384,30 @@ export default function App() {
       "Executing adversarial validation…",
       true,
     );
+    const phase3StreamRequestId = startCliTimelineRun(3, "phase3_run");
     setPhase3Loading(true);
 
     try {
-      const result = await runPhase3Adversarial({
-        repoPath: trimmedRepoPath,
-        baseBranch: withTrimmed(baseBranch) || "main",
-        requirement,
-        clarifications,
-        decision,
-        judgeProvider,
-        judgeModel: withTrimmed(judgeModel),
-        runtimeSettings,
-        autoCleanup,
-      });
+      const result = await runPhase3Adversarial(
+        {
+          repoPath: trimmedRepoPath,
+          baseBranch: withTrimmed(baseBranch) || "main",
+          requirement,
+          clarifications,
+          decision,
+          judgeProvider,
+          judgeModel: withTrimmed(judgeModel),
+          runtimeSettings,
+          autoCleanup,
+        },
+        {
+          streamRequestId: phase3StreamRequestId,
+        },
+      );
 
       setPhase3Result(result);
       setUnsavedState((prev) => ({ ...prev, phase3Dirty: false }));
+      finalizeCliTimelineRun(phase3StreamRequestId, "finished");
       transitionWorkflow("completed");
 
       appendText(
@@ -2325,14 +3426,17 @@ export default function App() {
           meta: metaFor("completed"),
         },
       });
-      appendTask(
-        "Workflow finished",
-        "completed",
-        "Persist or export this run.",
-        SUGGESTION_SETS.completed,
-      );
+      appendConversation({
+        id: crypto.randomUUID(),
+        type: "workflow_done",
+        payload: {
+          phase: 3,
+          meta: metaFor("completed"),
+        },
+      });
     } catch (caught) {
       const message = extractErrorMessage(caught);
+      finalizeCliTimelineRun(phase3StreamRequestId, "failed", message);
       const fullMessage = `Phase 3 failed: ${message}`;
       setPhase3FormError(fullMessage);
       setError(fullMessage);
@@ -2350,33 +3454,48 @@ export default function App() {
     if (!normalizedInput) return;
 
     const step = workflowStep;
+    if (step === "clarifications") {
+      appendText(
+        "assistant",
+        "Step 2 is friction-only. Resolve the inline Friction Inbox card, then click Resolve & Run Phase 2.",
+        "clarifications",
+      );
+      return;
+    }
+
+    if (step === "decision") {
+      appendText(
+        "assistant",
+        "Step 3 is inline-only. Use the arbitration block in the thread and click Apply decision.",
+        "decision",
+      );
+      return;
+    }
+
+    if (step === "phase3_config") {
+      appendText(
+        "assistant",
+        "Validation setup is inline-only. Use the Phase 3 block in the thread, then click Run Phase 3.",
+        "phase3_config",
+      );
+      return;
+    }
+
+    if (step === "completed") {
+      appendText(
+        "assistant",
+        "Workflow is complete. Use the inline Done block to save/export or start a new thread.",
+        "completed",
+      );
+      return;
+    }
+
     appendText("user", normalizedInput, step);
 
     if (step === "requirement") {
       await handleRequirementStep(normalizedInput);
       return;
     }
-
-    if (step === "clarifications") {
-      await handleClarificationsStep(normalizedInput);
-      return;
-    }
-
-    if (step === "decision") {
-      handleDecisionStep(normalizedInput);
-      return;
-    }
-
-    if (step === "phase3_config") {
-      await handlePhase3Step();
-      return;
-    }
-
-    appendText(
-      "assistant",
-      "Workflow is complete. Use the action chips to save/export or start a new session.",
-      "completed",
-    );
   }
 
   async function handleComposerSubmit() {
@@ -2517,9 +3636,26 @@ export default function App() {
       },
       {
         id: crypto.randomUUID(),
+        type: "decision_phase2",
+        payload: {
+          phase: 2,
+          phase2: loadedPhase2,
+          meta: metaFor("decision"),
+        },
+      },
+      {
+        id: crypto.randomUUID(),
         type: "user",
         text: session.phase2.human_decision,
         meta: metaFor("decision"),
+      },
+      {
+        id: crypto.randomUUID(),
+        type: "validate_phase3",
+        payload: {
+          phase: 3,
+          meta: metaFor("phase3_config"),
+        },
       },
     ];
 
@@ -2541,13 +3677,10 @@ export default function App() {
       });
       items.push({
         id: crypto.randomUUID(),
-        type: "task",
+        type: "workflow_done",
         payload: {
-          title: "Workflow finished",
-          description: "Persist or export this run.",
-          suggestions: SUGGESTION_SETS.completed,
-          done: false,
           meta: metaFor("completed"),
+          phase: 3,
         },
       });
     }
@@ -2574,15 +3707,27 @@ export default function App() {
     ];
 
     if (draft.phase1Result) {
-      items.push({
-        id: crypto.randomUUID(),
-        type: "plan",
-        payload: {
-          phase: 1,
-          phase1: draft.phase1Result,
-          meta: metaFor("clarifications"),
-        },
-      });
+      if (draft.phase2Result) {
+        items.push({
+          id: crypto.randomUUID(),
+          type: "plan",
+          payload: {
+            phase: 1,
+            phase1: draft.phase1Result,
+            meta: metaFor("clarifications"),
+          },
+        });
+      } else {
+        items.push({
+          id: crypto.randomUUID(),
+          type: "friction_phase1",
+          payload: {
+            phase: 1,
+            phase1: draft.phase1Result,
+            meta: metaFor("clarifications"),
+          },
+        });
+      }
     }
 
     if (draft.clarifications) {
@@ -2604,6 +3749,17 @@ export default function App() {
           meta: metaFor("decision"),
         },
       });
+      if (!draft.decision) {
+        items.push({
+          id: crypto.randomUUID(),
+          type: "decision_phase2",
+          payload: {
+            phase: 2,
+            phase2: draft.phase2Result,
+            meta: metaFor("decision"),
+          },
+        });
+      }
     }
 
     if (draft.decision) {
@@ -2613,6 +3769,30 @@ export default function App() {
         text: draft.decision,
         meta: metaFor("decision"),
       });
+      if (
+        draft.workflowStep === "phase3_config" ||
+        draft.workflowStep === "phase3_run" ||
+        draft.workflowStep === "completed"
+      ) {
+        items.push({
+          id: crypto.randomUUID(),
+          type: "validate_phase3",
+          payload: {
+            phase: 3,
+            meta: metaFor("phase3_config"),
+          },
+        });
+      }
+      if (draft.workflowStep === "completed") {
+        items.push({
+          id: crypto.randomUUID(),
+          type: "workflow_done",
+          payload: {
+            phase: 3,
+            meta: metaFor("completed"),
+          },
+        });
+      }
     }
 
     items.push({
@@ -2707,9 +3887,7 @@ export default function App() {
     setRequirement(session.requirement);
     setClarifications(session.phase1.human_clarifications);
     setDecision(session.phase2.human_decision);
-    setClarificationDirection(DEFAULT_CLARIFICATION_DIRECTION);
-    setClarificationConstraints("");
-    setClarificationAnswers("");
+    setFrictionInboxDraft(null);
     setPhase12Agents(runtimePhase12Agents);
     setPhase3AgentACli(runtimePhase3.agentA);
     setPhase3AgentBCli(runtimePhase3.agentB);
@@ -2759,6 +3937,7 @@ export default function App() {
   async function performLoadSession(id: string) {
     setSaveStatus(null);
     setError(null);
+    resetCliTimelineRuns();
 
     try {
       const session = await loadSessionRecord(id);
@@ -2792,13 +3971,12 @@ export default function App() {
 
   function restartNow() {
     clearDraft();
+    resetCliTimelineRuns();
     setComposerText("");
     setRequirement("");
     setClarifications("");
     setDecision("");
-    setClarificationDirection(DEFAULT_CLARIFICATION_DIRECTION);
-    setClarificationConstraints("");
-    setClarificationAnswers("");
+    setFrictionInboxDraft(null);
     setPhase1Result(null);
     setPhase2Result(null);
     setPhase3Result(null);
@@ -2851,6 +4029,57 @@ export default function App() {
     focusComposerInput();
   }
 
+  const flushPendingCliTimelineEvents = useCallback(() => {
+    const pending = pendingCliEventsRef.current;
+    if (pending.length === 0) {
+      return;
+    }
+    pendingCliEventsRef.current = [];
+
+    setCliTimelineRuns((previous) => {
+      let nextRuns = previous;
+      for (const payload of pending) {
+        const requestId = payload.requestId;
+        const isActive = activeCliTimelineRequestIdsRef.current.has(requestId);
+        const hasRun = nextRuns.some((run) => run.requestId === requestId);
+        if (!isActive && !hasRun) {
+          continue;
+        }
+        nextRuns = applyCliCommandLogEvent(nextRuns, payload);
+        if (payload.kind === "run_finished" || payload.kind === "run_failed") {
+          activeCliTimelineRequestIdsRef.current.delete(requestId);
+        }
+      }
+      return nextRuns;
+    });
+  }, []);
+
+  const enqueueCliTimelineEvent = useCallback(
+    (payload: CliCommandLogEvent) => {
+      pendingCliEventsRef.current.push(payload);
+      const shouldFlushImmediately =
+        payload.kind !== "command_chunk" ||
+        pendingCliEventsRef.current.length >=
+          CLI_TIMELINE_EVENT_IMMEDIATE_FLUSH_THRESHOLD;
+      if (shouldFlushImmediately) {
+        if (cliEventFlushTimerRef.current !== null) {
+          window.clearTimeout(cliEventFlushTimerRef.current);
+          cliEventFlushTimerRef.current = null;
+        }
+        flushPendingCliTimelineEvents();
+        return;
+      }
+      if (cliEventFlushTimerRef.current !== null) {
+        return;
+      }
+      cliEventFlushTimerRef.current = window.setTimeout(() => {
+        cliEventFlushTimerRef.current = null;
+        flushPendingCliTimelineEvents();
+      }, CLI_TIMELINE_EVENT_FLUSH_MS);
+    },
+    [flushPendingCliTimelineEvents],
+  );
+
   useEffect(() => {
     void refreshRecentSessions();
 
@@ -2861,9 +4090,13 @@ export default function App() {
         setRequirement(draft.requirement);
         if (draft.clarifications) setClarifications(draft.clarifications);
         if (draft.decision) setDecision(draft.decision);
-        setClarificationDirection(DEFAULT_CLARIFICATION_DIRECTION);
-        setClarificationConstraints("");
-        setClarificationAnswers("");
+        setFrictionInboxDraft(
+          draft.frictionInboxDraft
+            ? normalizeFrictionInboxDraft(draft.frictionInboxDraft)
+            : draft.phase2Result
+              ? null
+              : createFrictionInboxDraft(draft.phase1Result),
+        );
         setPhase1Result(draft.phase1Result);
         if (draft.phase2Result) setPhase2Result(draft.phase2Result);
         setWorkflowStep(draft.workflowStep);
@@ -2871,6 +4104,44 @@ export default function App() {
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (!canUseTauriCommands()) return;
+
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const { listen } = await import("@tauri-apps/api/event");
+        if (cancelled) return;
+        unlisten = await listen<CliCommandLogEvent>(
+          CLI_COMMAND_LOG_EVENT_NAME,
+          (event) => {
+            const payload = event.payload;
+            if (!isCliCommandLogEventPayload(payload)) {
+              return;
+            }
+            enqueueCliTimelineEvent(payload);
+          },
+        );
+      } catch {
+        // Event channel unavailable in non-Tauri contexts.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (unlisten) {
+        unlisten();
+      }
+      pendingCliEventsRef.current = [];
+      if (cliEventFlushTimerRef.current !== null) {
+        window.clearTimeout(cliEventFlushTimerRef.current);
+        cliEventFlushTimerRef.current = null;
+      }
+    };
+  }, [enqueueCliTimelineEvent]);
 
   useEffect(() => {
     if (!cliSetupRequired) {
@@ -2959,24 +4230,45 @@ export default function App() {
 
   useEffect(() => {
     if (!settingsOpen && !cliSetupRequired) return;
-    const hasMissingInventory = AGENT_CLI_OPTIONS.some(
-      (alias) => !cliModelInventoryLoaded[alias]
+    const targets = visibleCliAliases.filter(
+      (alias) =>
+        !cliModelInventoryLoaded[alias] && !cliModelInventoryLoading[alias],
     );
-    if (!hasMissingInventory) return;
-    const hasLoading = AGENT_CLI_OPTIONS.some(
-      (alias) => cliModelInventoryLoading[alias]
-    );
-    if (hasLoading) return;
-    void refreshCliModelInventory(AGENT_CLI_OPTIONS);
-  }, [settingsOpen, cliSetupRequired, cliModelInventoryLoaded, cliModelInventoryLoading]);
+    if (targets.length === 0) return;
+    void refreshCliModelInventory(targets);
+  }, [
+    settingsOpen,
+    cliSetupRequired,
+    visibleCliAliases,
+    cliModelInventoryLoaded,
+    cliModelInventoryLoading,
+  ]);
 
   useEffect(() => {
-    const hasLoading = AGENT_CLI_OPTIONS.some(
-      (alias) => cliModelInventoryLoading[alias]
+    if (visibleCliAliases.length === 0) {
+      return;
+    }
+    if (lastInventoryRefreshSignatureRef.current === inventoryRefreshSignature) {
+      return;
+    }
+    lastInventoryRefreshSignatureRef.current = inventoryRefreshSignature;
+    void refreshCliModelInventory(visibleCliAliases);
+  }, [inventoryRefreshSignature, visibleCliAliases]);
+
+  useEffect(() => {
+    const backgroundAliases = AGENT_CLI_OPTIONS.filter(
+      (alias) => !visibleCliAliases.includes(alias),
     );
-    if (hasLoading) return;
-    void refreshCliModelInventory(AGENT_CLI_OPTIONS);
-  }, [cliCommandsSignature, ollamaHost]);
+    const pending = backgroundAliases.filter(
+      (alias) =>
+        !cliModelInventoryLoaded[alias] && !cliModelInventoryLoading[alias],
+    );
+    if (pending.length === 0) return;
+    const timeout = window.setTimeout(() => {
+      void refreshCliModelInventory(pending);
+    }, 350);
+    return () => window.clearTimeout(timeout);
+  }, [visibleCliAliases, cliModelInventoryLoaded, cliModelInventoryLoading]);
 
   useEffect(() => {
     if (!routeState.sessionId) return;
@@ -3031,17 +4323,6 @@ export default function App() {
   ]);
 
   useEffect(() => {
-    if (
-      clarificationDirectionOptions.some(
-        (option) => option.value === clarificationDirection,
-      )
-    ) {
-      return;
-    }
-    setClarificationDirection(DEFAULT_CLARIFICATION_DIRECTION);
-  }, [clarificationDirection, clarificationDirectionOptions]);
-
-  useEffect(() => {
     const onPopState = () => {
       const next = readRouteStateFromLocation();
       setRouteState({ ...DEFAULT_ROUTE_STATE, ...next });
@@ -3055,11 +4336,30 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    scrollAnchorRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "end",
-    });
-  }, [conversation.length, isBusy]);
+    const viewport = getThreadViewport();
+    if (!viewport) return;
+    const handleScroll = () => {
+      syncThreadScrollState();
+    };
+    syncThreadScrollState();
+    viewport.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      viewport.removeEventListener("scroll", handleScroll);
+    };
+  }, [assistantThreadMessages.length, getThreadViewport, syncThreadScrollState]);
+
+  useEffect(() => {
+    if (!threadAutoScrollRef.current) {
+      return;
+    }
+    const behavior: ScrollBehavior = isBusy ? "auto" : "smooth";
+    scrollThreadToBottom(behavior);
+  }, [conversation.length, isBusy, scrollThreadToBottom]);
+
+  useEffect(() => {
+    if (!threadAutoScrollRef.current) return;
+    scrollThreadToBottom("auto");
+  }, [cliTimelineRuns, scrollThreadToBottom]);
 
   useEffect(() => {
     if (promptModelAgentIds.length === 0) return;
@@ -3067,76 +4367,7 @@ export default function App() {
       return;
     setActivePromptModelAgentId(promptModelAgentIds[0]);
   }, [activePromptModelAgentId, promptModelAgentIds]);
-
-  let composerAccessory: JSX.Element | null = null;
-
-  if (workflowStep === "decision" && phase2Result) {
-    const p2Agents = phase2AgentsFromResult(phase2Result, phase12AgentsSafe);
-    composerAccessory = (
-      <MultiPlanArbitrationCard
-        plans={p2Agents}
-        disabled={isBusy}
-        onInsertDecision={handleInsertDecisionTemplate}
-      />
-    );
-  } else if (
-    workflowStep === "phase3_config" ||
-    workflowStep === "phase3_run"
-  ) {
-    composerAccessory = (
-      <div className="chat-config-grid">
-        <label className="grid gap-1">
-          <span className="panel-label">Repository path</span>
-          <input
-            value={repoPath}
-            onChange={(event) => {
-              setRepoPath(event.target.value);
-              setUnsavedState((prev) => ({ ...prev, phase3Dirty: true }));
-            }}
-            className="input-base"
-            name="repo_path"
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="/absolute/path/to/git/repo"
-          />
-        </label>
-        <label className="grid gap-1">
-          <span className="panel-label">Base branch</span>
-          <input
-            value={baseBranch}
-            onChange={(event) => {
-              setBaseBranch(event.target.value);
-              setUnsavedState((prev) => ({ ...prev, phase3Dirty: true }));
-            }}
-            className="input-base"
-            name="base_branch"
-            autoComplete="off"
-            placeholder="main"
-          />
-        </label>
-        <label className="checkbox-row chat-config-check">
-          <input
-            type="checkbox"
-            checked={consentedToDataset}
-            onChange={(event) => {
-              setConsentedToDataset(event.target.checked);
-              setUnsavedState((prev) => ({ ...prev, phase3Dirty: true }));
-            }}
-          />
-          <span>Dataset opt-in</span>
-        </label>
-        {phase3FormError ? (
-          <p
-            className="text-xs font-medium text-friction-danger"
-            role="alert"
-            aria-live="polite"
-          >
-            {phase3FormError}
-          </p>
-        ) : null}
-      </div>
-    );
-  }
+  const composerAccessory: JSX.Element | null = null;
 
   if (cliSetupRequired) {
     return (
@@ -3324,214 +4555,32 @@ export default function App() {
                     }
                     scrollAnchorRef={scrollAnchorRef}
                   >
-                    <div className="aui-root friction-thread-surface friction-thread-surface-modern">
+                    <div
+                      ref={threadSurfaceRef}
+                      className="aui-root friction-thread-surface friction-thread-surface-modern"
+                    >
                       <Thread
-                        welcome={{
-                          message:
-                            "Describe your requirement. I will run phase 1 automatically after you send.",
-                        }}
+                        welcome={threadWelcome}
                         composer={{ allowAttachments: false }}
                         userMessage={{ allowEdit: false }}
-                        assistantMessage={{
-                          allowReload: false,
-                          allowCopy: true,
-                          allowSpeak: false,
-                          allowFeedbackPositive: false,
-                          allowFeedbackNegative: false,
-                          components: {
-                            Text: MarkdownText,
-                          },
-                        }}
-                        components={{
-                          Composer: () => null,
-                        }}
-                        strings={{
-                          composer: {
-                            input: {
-                              placeholder: PROMPT_HINTS[workflowStep],
-                            },
-                          },
-                        }}
+                        assistantMessage={threadAssistantMessageConfig}
+                        components={threadComponents}
+                        strings={threadStrings}
                       />
+                      {showThreadScrollToBottom ? (
+                        <button
+                          type="button"
+                          className="thread-scroll-bottom-bubble"
+                          onClick={() => scrollThreadToBottom("smooth")}
+                          aria-label="Scroll to latest message"
+                          title="Scroll to latest message"
+                        >
+                          <ArrowDown className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                      ) : null}
                     </div>
-                    {artifactConversationItems.map((item) => {
-                      if (item.type === "task") {
-                        return (
-                          <article key={item.id} className="chat-task-card">
-                            <p className="text-sm font-semibold text-friction-text">
-                              {item.payload.title}
-                            </p>
-                            {item.payload.description ? (
-                              <p className="mt-1 text-sm text-friction-muted">
-                                {item.payload.description}
-                              </p>
-                            ) : null}
-                            <SuggestionChips
-                              suggestions={item.payload.suggestions ?? []}
-                              onPick={handleSuggestionPick}
-                            />
-                          </article>
-                        );
-                      }
-
-                      if (item.type === "plan") {
-                        if (item.payload.phase === 1 && item.payload.phase1) {
-                          const p1 = item.payload.phase1;
-                          const p1Agents = phase1AgentsFromResult(
-                            p1,
-                            phase12AgentsSafe,
-                          );
-                          return (
-                            <PlanCard
-                              key={item.id}
-                              title="Phase 1 — Multi-agent interpretation"
-                              summary={`${p1.divergences.length} friction point${p1.divergences.length !== 1 ? "s" : ""} · ${p1Agents.length} agent${p1Agents.length > 1 ? "s" : ""}`}
-                              defaultOpen={false}
-                            >
-                              <DivergenceBlock
-                                title="Friction points"
-                                divergences={p1.divergences}
-                                leftLabel={p1Agents[0]?.label ?? "Agent A"}
-                                rightLabel={p1Agents[1]?.label ?? "Agent B"}
-                              />
-                              <div className="mt-4 grid gap-4 xl:grid-cols-2">
-                                {p1Agents.map((agent, index) => (
-                                  <AgentCard
-                                    key={`${agent.id}-${index}`}
-                                    title={agent.label}
-                                    tone={index % 2 === 0 ? "steel" : "ember"}
-                                    payload={agent.response}
-                                    fields={[
-                                      "interpretation",
-                                      "assumptions",
-                                      "risks",
-                                      "questions",
-                                      "approach",
-                                    ]}
-                                    model={`cli:${agent.cli}`}
-                                  />
-                                ))}
-                              </div>
-                            </PlanCard>
-                          );
-                        }
-
-                        if (item.payload.phase === 2 && item.payload.phase2) {
-                          const p2 = item.payload.phase2;
-                          const p2Agents = phase2AgentsFromResult(
-                            p2,
-                            phase12AgentsSafe,
-                          );
-                          return (
-                            <PlanCard
-                              key={item.id}
-                              title="Phase 2 — Multi-agent plans"
-                              summary={`${p2.divergences.length} plan divergence${p2.divergences.length !== 1 ? "s" : ""} · ${p2Agents.length} plan variants`}
-                              defaultOpen={false}
-                            >
-                              <DivergenceBlock
-                                title="Plan divergences"
-                                divergences={p2.divergences}
-                                leftLabel={p2Agents[0]?.label ?? "Agent A"}
-                                rightLabel={p2Agents[1]?.label ?? "Agent B"}
-                              />
-                              <div className="mt-4 grid gap-4 xl:grid-cols-2">
-                                {p2Agents.map((agent, index) => (
-                                  <PlanPanel
-                                    key={`${agent.id}-${index}`}
-                                    title={agent.label}
-                                    tone={index % 2 === 0 ? "steel" : "ember"}
-                                    plan={agent.plan}
-                                    divergences={p2.divergences}
-                                  />
-                                ))}
-                              </div>
-                            </PlanCard>
-                          );
-                        }
-                      }
-
-                      if (item.type === "code") {
-                        return (
-                          <CodeCard
-                            key={item.id}
-                            title="Phase 3 output"
-                            summary={`Repo: ${item.payload.repoPath} · Branch: ${item.payload.baseBranch} · Confidence ${formatPercent(item.payload.phase3.confidenceScore)}`}
-                          >
-                            <DiffViewer phase3={item.payload.phase3} />
-                          </CodeCard>
-                        );
-                      }
-
-                      return null;
-                    })}
-                    {isBusy ? <ShimmerBlock lines={4} /> : null}
                   </ConversationShell>
 
-                  {workflowStep === "clarifications" ? (
-                    <aside
-                      className={[
-                        "clarification-side-panel",
-                        clarificationPanelCollapsed ? "is-collapsed" : "",
-                      ].join(" ")}
-                      aria-label="Clarification helper panel"
-                    >
-                      <div className="clarification-side-panel-header">
-                        <div>
-                          <p className="panel-label">Clarification helper</p>
-                          <p className="text-xs text-friction-muted">
-                            Fill direction, constraints, and open-question
-                            answers.
-                          </p>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          className="min-h-9 px-2.5"
-                          onClick={() =>
-                            setClarificationPanelCollapsed((value) => !value)
-                          }
-                          aria-expanded={!clarificationPanelCollapsed}
-                        >
-                          {clarificationPanelCollapsed ? (
-                            <>
-                              <ChevronLeft
-                                className="h-4 w-4"
-                                aria-hidden="true"
-                              />
-                              Open
-                            </>
-                          ) : (
-                            <>
-                              <ChevronRight
-                                className="h-4 w-4"
-                                aria-hidden="true"
-                              />
-                              Collapse
-                            </>
-                          )}
-                        </Button>
-                      </div>
-                      {!clarificationPanelCollapsed ? (
-                        <ClarificationHelper
-                          direction={clarificationDirection}
-                          directionOptions={clarificationDirectionOptions}
-                          constraints={clarificationConstraints}
-                          answers={clarificationAnswers}
-                          questions={clarificationQuestions}
-                          disabled={isBusy}
-                          onDirectionChange={setClarificationDirection}
-                          onConstraintsChange={setClarificationConstraints}
-                          onAnswersChange={setClarificationAnswers}
-                          onInsertTemplate={handleInsertClarificationTemplate}
-                        />
-                      ) : (
-                        <p className="text-xs text-friction-muted">
-                          Panel collapsed. Open it to complete clarification
-                          fields.
-                        </p>
-                      )}
-                    </aside>
-                  ) : null}
                 </div>
               </div>
             </section>

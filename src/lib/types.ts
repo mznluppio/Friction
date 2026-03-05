@@ -13,6 +13,9 @@ export interface CliAliasModelInventory {
   reason?: string;
   stale?: boolean;
   lastUpdatedAt?: string;
+  providerMode?: string;
+  fetchDurationMs?: number;
+  fetchedAt?: string;
 }
 
 export type Domain = "auth" | "payment" | "notifications" | "analytics" | "other";
@@ -188,6 +191,79 @@ export interface Phase12RuntimeDiagnostic {
   agents: CliResolutionDiagnostic[];
 }
 
+export type CliCommandLogKind =
+  | "run_started"
+  | "command_started"
+  | "command_chunk"
+  | "command_finished"
+  | "run_finished"
+  | "run_failed";
+
+export type CliCommandLogStream = "stdout" | "stderr";
+
+export interface CliCommandLogEvent {
+  requestId: string;
+  phase: 1 | 2 | 3;
+  kind: CliCommandLogKind;
+  commandId?: string;
+  agentId?: string;
+  agentLabel?: string;
+  agentCli?: string;
+  stream?: CliCommandLogStream;
+  chunk?: string;
+  command?: string;
+  commandSource?: string;
+  resolvedPath?: string;
+  model?: string;
+  modelSource?: string;
+  exitCode?: number;
+  timestamp: string;
+}
+
+export type CliTimelineRunStatus = "running" | "finished" | "failed";
+export type CliTimelineCommandStatus = "running" | "finished" | "failed";
+
+export interface CliTimelineCommand {
+  commandId: string;
+  agentId?: string;
+  agentLabel?: string;
+  cli?: string;
+  command?: string;
+  commandSource?: string;
+  resolvedPath?: string;
+  model?: string;
+  modelSource?: string;
+  output: string;
+  rawOutput: string;
+  readableOutput: string;
+  displayMode?: "readable" | "raw";
+  status: CliTimelineCommandStatus;
+  isStreaming: boolean;
+  startedAt: string;
+  updatedAt: string;
+  endedAt?: string;
+  exitCode?: number;
+  truncated?: boolean;
+}
+
+export interface CliTimelineRun {
+  requestId: string;
+  phase: 1 | 2 | 3;
+  status: CliTimelineRunStatus;
+  createdAt: string;
+  updatedAt: string;
+  error?: string;
+  commands: CliTimelineCommand[];
+}
+
+// Legacy compatibility aliases (to be removed after migration)
+export type Phase12CliLogKind = CliCommandLogKind;
+export type Phase12CliLogStream = CliCommandLogStream;
+export type Phase12CliLogEvent = CliCommandLogEvent;
+export type Phase12LiveRunStatus = CliTimelineRunStatus;
+export type Phase12LiveTerminalAgent = CliTimelineCommand;
+export type Phase12LiveTerminalRun = CliTimelineRun;
+
 export interface CliOnboardingStatus {
   cli: AgentCli;
   configuredCommand: string;
@@ -342,6 +418,40 @@ export interface ConversationTaskPayload {
   meta: ConversationMetaPayload;
 }
 
+export interface ConversationCliTimelinePayload {
+  requestId: string;
+  phase: 1 | 2 | 3;
+  meta: ConversationMetaPayload;
+}
+
+export interface ConversationFrictionPhase1Payload {
+  phase: 1;
+  phase1: Phase1Result;
+  meta: ConversationMetaPayload;
+}
+
+export interface ConversationFrictionInboxPayload {
+  phase: 1;
+  sourcePlanItemId: string;
+  meta: ConversationMetaPayload;
+}
+
+export interface ConversationDecisionPhase2Payload {
+  phase: 2;
+  phase2: Phase2Result;
+  meta: ConversationMetaPayload;
+}
+
+export interface ConversationValidatePhase3Payload {
+  phase: 3;
+  meta: ConversationMetaPayload;
+}
+
+export interface ConversationWorkflowDonePayload {
+  phase: 3;
+  meta: ConversationMetaPayload;
+}
+
 export interface ConversationToolPayload {
   label: string;
   detail?: string;
@@ -359,6 +469,12 @@ export type ConversationPayload =
   | ConversationPlanPayload
   | ConversationCodePayload
   | ConversationTaskPayload
+  | ConversationCliTimelinePayload
+  | ConversationFrictionPhase1Payload
+  | ConversationFrictionInboxPayload
+  | ConversationDecisionPhase2Payload
+  | ConversationValidatePhase3Payload
+  | ConversationWorkflowDonePayload
   | ConversationToolPayload
   | ConversationErrorPayload;
 
@@ -391,9 +507,55 @@ export type ConversationItem =
     }
   | {
       id: string;
+      type: "cli_timeline";
+      payload: ConversationCliTimelinePayload;
+    }
+  | {
+      id: string;
+      type: "friction_phase1";
+      payload: ConversationFrictionPhase1Payload;
+    }
+  | {
+      id: string;
+      type: "friction_inbox";
+      payload: ConversationFrictionInboxPayload;
+    }
+  | {
+      id: string;
+      type: "decision_phase2";
+      payload: ConversationDecisionPhase2Payload;
+    }
+  | {
+      id: string;
+      type: "validate_phase3";
+      payload: ConversationValidatePhase3Payload;
+    }
+  | {
+      id: string;
+      type: "workflow_done";
+      payload: ConversationWorkflowDonePayload;
+    }
+  | {
+      id: string;
       type: "error";
       payload: ConversationErrorPayload;
     };
+
+export type FrictionResolutionChoice = `agent:${string}` | "hybrid";
+
+export interface FrictionResolutionDraft {
+  key: string;
+  field: string;
+  severity: Divergence["severity"];
+  choice?: FrictionResolutionChoice;
+  rationale: string;
+}
+
+export interface FrictionInboxDraft {
+  direction?: FrictionResolutionChoice;
+  resolutions: FrictionResolutionDraft[];
+  status: "draft" | "ready" | "submitted";
+}
 
 export interface UnsavedState {
   phase1Dirty: boolean;

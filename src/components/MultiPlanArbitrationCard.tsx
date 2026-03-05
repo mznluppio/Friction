@@ -351,7 +351,7 @@ export function MultiPlanArbitrationCard({ plans, disabled, onInsertDecision }: 
             onInsertDecision(payload.note, payload.structured);
           }}
         >
-          Insert decision note
+          Apply decision
         </button>
       </CardContent>
     </Card>

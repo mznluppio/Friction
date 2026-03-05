@@ -64,6 +64,7 @@ Par defaut, Friction se configure depuis l'app:
 - Si le live listing est indisponible, l'UI bascule en fallback explicite (presets) avec raison visible.
 - Le cache inventaire est stale-while-revalidate (`source=cache|live|fallback`) pour ouverture rapide de la modal.
 - Les commandes peuvent etre un nom binaire (`codex`) ou un chemin absolu (`/opt/homebrew/bin/codex`).
+- Timeout inventaire modeles configurable via `FRICTION_CLI_MODELS_HTTP_TIMEOUT_SECS` (default: `8` secondes).
 
 Ordre de resolution des executables (deterministe):
 

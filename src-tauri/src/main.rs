@@ -13,6 +13,8 @@ use session::{
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
+#[cfg(not(test))]
+use tauri::Emitter;
 use uuid::Uuid;
 
 #[derive(serde::Serialize)]
@@ -29,6 +31,7 @@ struct CliModelsOutput {
     reason: Option<String>,
     stale: bool,
     last_updated_at: Option<String>,
+    provider_mode: Option<String>,
 }
 
 fn normalized(value: &str) -> String {
@@ -470,13 +473,13 @@ fn require_dual_plans(
     Ok((first.plan.clone(), second.plan.clone()))
 }
 
-#[tauri::command(rename_all = "snake_case")]
-async fn run_phase1(
+async fn run_phase1_impl(
     requirement: String,
     agent_a_cli: Option<String>,
     agent_b_cli: Option<String>,
     phase_agents: Option<Vec<agents::PhaseAgentInput>>,
     runtime_config: Option<agents::RuntimeConfigInput>,
+    phase12_run_context: Option<agents::Phase12CliRunContext>,
 ) -> Result<Phase1Output, String> {
     if requirement.trim().is_empty() {
         return Err("Requirement cannot be empty".to_string());
@@ -500,6 +503,10 @@ async fn run_phase1(
         agent_b_cli.as_deref(),
     )?;
 
+    if let Some(context) = phase12_run_context.as_ref() {
+        agents::emit_phase12_run_started(context);
+    }
+
     let legacy_mode = agents::legacy_provider_mode_enabled() && !has_explicit_cli_selection;
     let (arch, prag, agent_responses) = if legacy_mode {
         if resolved_phase_agents.len() != 2 {
@@ -508,7 +515,14 @@ async fn run_phase1(
                     .to_string(),
             );
         }
-        let (arch, prag) = agents::analyze_dual(&requirement, runtime_config.as_ref()).await?;
+        let (arch, prag) = agents::analyze_dual(&requirement, runtime_config.as_ref())
+            .await
+            .map_err(|err| {
+                if let Some(context) = phase12_run_context.as_ref() {
+                    agents::emit_phase12_run_failed(context, err.clone());
+                }
+                err
+            })?;
         let responses = vec![
             NamedAgentResponse {
                 id: resolved_phase_agents[0].id.clone(),
@@ -529,8 +543,15 @@ async fn run_phase1(
             &requirement,
             &resolved_phase_agents,
             runtime_config.as_ref(),
+            phase12_run_context.as_ref(),
         )
-        .await?;
+        .await
+        .map_err(|err| {
+            if let Some(context) = phase12_run_context.as_ref() {
+                agents::emit_phase12_run_failed(context, err.clone());
+            }
+            err
+        })?;
         let (arch, prag) = require_dual_responses(&responses)?;
         (arch, prag, responses)
     };
@@ -566,6 +587,10 @@ async fn run_phase1(
         build_phase1_divergences(&agent_responses)
     };
 
+    if let Some(context) = phase12_run_context.as_ref() {
+        agents::emit_phase12_run_finished(context);
+    }
+
     Ok(Phase1Output {
         architect: arch,
         pragmatist: prag,
@@ -573,6 +598,69 @@ async fn run_phase1(
         divergences,
         human_clarifications: String::new(),
     })
+}
+
+#[cfg(not(test))]
+#[tauri::command(rename_all = "snake_case")]
+async fn run_phase1(
+    window: tauri::Window,
+    requirement: String,
+    agent_a_cli: Option<String>,
+    agent_b_cli: Option<String>,
+    phase_agents: Option<Vec<agents::PhaseAgentInput>>,
+    runtime_config: Option<agents::RuntimeConfigInput>,
+    stream_request_id: Option<String>,
+) -> Result<Phase1Output, String> {
+    let phase12_run_context = stream_request_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|request_id| {
+            let command_window = window.clone();
+            let emitter: agents::CliCommandLogEmitter =
+                std::sync::Arc::new(move |event: agents::CliCommandLogEvent| {
+                    let _ = command_window.emit(agents::CLI_COMMAND_LOG_EVENT_NAME, event);
+                });
+            let legacy_window = window.clone();
+            let legacy_phase12_emitter: agents::Phase12CliLogEmitter =
+                std::sync::Arc::new(move |event: agents::Phase12CliLogEvent| {
+                    let _ = legacy_window.emit(agents::PHASE12_CLI_LOG_EVENT_NAME, event);
+                });
+            agents::Phase12CliRunContext {
+                request_id: request_id.to_string(),
+                phase: 1,
+                emitter,
+                legacy_phase12_emitter: Some(legacy_phase12_emitter),
+            }
+        });
+    run_phase1_impl(
+        requirement,
+        agent_a_cli,
+        agent_b_cli,
+        phase_agents,
+        runtime_config,
+        phase12_run_context,
+    )
+    .await
+}
+
+#[cfg(test)]
+async fn run_phase1(
+    requirement: String,
+    agent_a_cli: Option<String>,
+    agent_b_cli: Option<String>,
+    phase_agents: Option<Vec<agents::PhaseAgentInput>>,
+    runtime_config: Option<agents::RuntimeConfigInput>,
+) -> Result<Phase1Output, String> {
+    run_phase1_impl(
+        requirement,
+        agent_a_cli,
+        agent_b_cli,
+        phase_agents,
+        runtime_config,
+        None,
+    )
+    .await
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -616,17 +704,18 @@ async fn list_cli_models(
         reason: output.reason,
         stale: output.stale,
         last_updated_at: output.last_updated_at,
+        provider_mode: output.provider_mode,
     })
 }
 
-#[tauri::command(rename_all = "snake_case")]
-async fn run_phase2(
+async fn run_phase2_impl(
     requirement: String,
     clarifications: String,
     agent_a_cli: Option<String>,
     agent_b_cli: Option<String>,
     phase_agents: Option<Vec<agents::PhaseAgentInput>>,
     runtime_config: Option<agents::RuntimeConfigInput>,
+    phase12_run_context: Option<agents::Phase12CliRunContext>,
 ) -> Result<Phase2Output, String> {
     if requirement.trim().is_empty() {
         return Err("Requirement cannot be empty".to_string());
@@ -650,6 +739,10 @@ async fn run_phase2(
         agent_b_cli.as_deref(),
     )?;
 
+    if let Some(context) = phase12_run_context.as_ref() {
+        agents::emit_phase12_run_started(context);
+    }
+
     let legacy_mode = agents::legacy_provider_mode_enabled() && !has_explicit_cli_selection;
     let (arch, prag, agent_plans) = if legacy_mode {
         if resolved_phase_agents.len() != 2 {
@@ -659,7 +752,14 @@ async fn run_phase2(
             );
         }
         let (arch, prag) =
-            agents::plan_dual(&requirement, &clarifications, runtime_config.as_ref()).await?;
+            agents::plan_dual(&requirement, &clarifications, runtime_config.as_ref())
+                .await
+                .map_err(|err| {
+                    if let Some(context) = phase12_run_context.as_ref() {
+                        agents::emit_phase12_run_failed(context, err.clone());
+                    }
+                    err
+                })?;
         let plans = vec![
             NamedAgentPlan {
                 id: resolved_phase_agents[0].id.clone(),
@@ -681,8 +781,15 @@ async fn run_phase2(
             &clarifications,
             &resolved_phase_agents,
             runtime_config.as_ref(),
+            phase12_run_context.as_ref(),
         )
-        .await?;
+        .await
+        .map_err(|err| {
+            if let Some(context) = phase12_run_context.as_ref() {
+                agents::emit_phase12_run_failed(context, err.clone());
+            }
+            err
+        })?;
         let (arch, prag) = require_dual_plans(&plans)?;
         (arch, prag, plans)
     };
@@ -710,6 +817,10 @@ async fn run_phase2(
         build_phase2_divergences(&agent_plans)
     };
 
+    if let Some(context) = phase12_run_context.as_ref() {
+        agents::emit_phase12_run_finished(context);
+    }
+
     Ok(Phase2Output {
         architect: arch,
         pragmatist: prag,
@@ -718,6 +829,73 @@ async fn run_phase2(
         human_decision: String::new(),
         human_decision_structured: None,
     })
+}
+
+#[cfg(not(test))]
+#[tauri::command(rename_all = "snake_case")]
+async fn run_phase2(
+    window: tauri::Window,
+    requirement: String,
+    clarifications: String,
+    agent_a_cli: Option<String>,
+    agent_b_cli: Option<String>,
+    phase_agents: Option<Vec<agents::PhaseAgentInput>>,
+    runtime_config: Option<agents::RuntimeConfigInput>,
+    stream_request_id: Option<String>,
+) -> Result<Phase2Output, String> {
+    let phase12_run_context = stream_request_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|request_id| {
+            let command_window = window.clone();
+            let emitter: agents::CliCommandLogEmitter =
+                std::sync::Arc::new(move |event: agents::CliCommandLogEvent| {
+                    let _ = command_window.emit(agents::CLI_COMMAND_LOG_EVENT_NAME, event);
+                });
+            let legacy_window = window.clone();
+            let legacy_phase12_emitter: agents::Phase12CliLogEmitter =
+                std::sync::Arc::new(move |event: agents::Phase12CliLogEvent| {
+                    let _ = legacy_window.emit(agents::PHASE12_CLI_LOG_EVENT_NAME, event);
+                });
+            agents::Phase12CliRunContext {
+                request_id: request_id.to_string(),
+                phase: 2,
+                emitter,
+                legacy_phase12_emitter: Some(legacy_phase12_emitter),
+            }
+        });
+    run_phase2_impl(
+        requirement,
+        clarifications,
+        agent_a_cli,
+        agent_b_cli,
+        phase_agents,
+        runtime_config,
+        phase12_run_context,
+    )
+    .await
+}
+
+#[cfg(test)]
+async fn run_phase2(
+    requirement: String,
+    clarifications: String,
+    agent_a_cli: Option<String>,
+    agent_b_cli: Option<String>,
+    phase_agents: Option<Vec<agents::PhaseAgentInput>>,
+    runtime_config: Option<agents::RuntimeConfigInput>,
+) -> Result<Phase2Output, String> {
+    run_phase2_impl(
+        requirement,
+        clarifications,
+        agent_a_cli,
+        agent_b_cli,
+        phase_agents,
+        runtime_config,
+        None,
+    )
+    .await
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -773,8 +951,7 @@ fn diff_worktrees(
     git::diff_refs(&repo_path, &left_ref, &right_ref)
 }
 
-#[tauri::command(rename_all = "snake_case")]
-async fn run_phase3(
+async fn run_phase3_impl(
     repo_path: String,
     base_branch: Option<String>,
     requirement: String,
@@ -787,19 +964,35 @@ async fn run_phase3(
     agent_b_cli: Option<String>,
     runtime_config: Option<agents::RuntimeConfigInput>,
     auto_cleanup: Option<bool>,
+    phase12_run_context: Option<agents::Phase12CliRunContext>,
 ) -> Result<Phase3Output, String> {
     if repo_path.trim().is_empty() {
+        if let Some(context) = phase12_run_context.as_ref() {
+            agents::emit_phase12_run_failed(context, "repo_path cannot be empty".to_string());
+        }
         return Err("repo_path cannot be empty".to_string());
     }
     if requirement.trim().is_empty() {
+        if let Some(context) = phase12_run_context.as_ref() {
+            agents::emit_phase12_run_failed(context, "requirement cannot be empty".to_string());
+        }
         return Err("requirement cannot be empty".to_string());
+    }
+
+    if let Some(context) = phase12_run_context.as_ref() {
+        agents::emit_phase12_run_started(context);
     }
 
     let resolved_session_id = session_id.unwrap_or_else(|| format!("s{}", Uuid::new_v4().simple()));
     let base = base_branch.unwrap_or_else(|| "main".to_string());
     let should_cleanup = auto_cleanup.unwrap_or(true);
 
-    let layout = git::create_worktrees(&repo_path, &base, &resolved_session_id)?;
+    let layout = git::create_worktrees(&repo_path, &base, &resolved_session_id).map_err(|err| {
+        if let Some(context) = phase12_run_context.as_ref() {
+            agents::emit_phase12_run_failed(context, err.clone());
+        }
+        err
+    })?;
     let execution = async {
         let resolved_agent_a_cli = agents::resolve_agent_a_cli(agent_a_cli.as_deref())?;
         let code_a = agents::generate_candidate_via_cli(
@@ -809,6 +1002,7 @@ async fn run_phase3(
             &decision,
             &layout.agent_a_worktree,
             runtime_config.as_ref(),
+            phase12_run_context.as_ref(),
         )
         .await?;
 
@@ -828,6 +1022,7 @@ async fn run_phase3(
             &code_a,
             &layout.agent_b_worktree,
             runtime_config.as_ref(),
+            phase12_run_context.as_ref(),
         )
         .await?;
 
@@ -873,7 +1068,106 @@ async fn run_phase3(
         let _ = git::cleanup_worktrees(&repo_path, &resolved_session_id);
     }
 
-    execution
+    match execution {
+        Ok(result) => {
+            if let Some(context) = phase12_run_context.as_ref() {
+                agents::emit_phase12_run_finished(context);
+            }
+            Ok(result)
+        }
+        Err(err) => {
+            if let Some(context) = phase12_run_context.as_ref() {
+                agents::emit_phase12_run_failed(context, err.clone());
+            }
+            Err(err)
+        }
+    }
+}
+
+#[cfg(not(test))]
+#[tauri::command(rename_all = "snake_case")]
+async fn run_phase3(
+    window: tauri::Window,
+    repo_path: String,
+    base_branch: Option<String>,
+    requirement: String,
+    clarifications: String,
+    decision: String,
+    session_id: Option<String>,
+    judge_provider: Option<String>,
+    judge_model: Option<String>,
+    agent_a_cli: Option<String>,
+    agent_b_cli: Option<String>,
+    runtime_config: Option<agents::RuntimeConfigInput>,
+    auto_cleanup: Option<bool>,
+    stream_request_id: Option<String>,
+) -> Result<Phase3Output, String> {
+    let phase12_run_context = stream_request_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|request_id| {
+            let command_window = window.clone();
+            let emitter: agents::CliCommandLogEmitter =
+                std::sync::Arc::new(move |event: agents::CliCommandLogEvent| {
+                    let _ = command_window.emit(agents::CLI_COMMAND_LOG_EVENT_NAME, event);
+                });
+            agents::Phase12CliRunContext {
+                request_id: request_id.to_string(),
+                phase: 3,
+                emitter,
+                legacy_phase12_emitter: None,
+            }
+        });
+    run_phase3_impl(
+        repo_path,
+        base_branch,
+        requirement,
+        clarifications,
+        decision,
+        session_id,
+        judge_provider,
+        judge_model,
+        agent_a_cli,
+        agent_b_cli,
+        runtime_config,
+        auto_cleanup,
+        phase12_run_context,
+    )
+    .await
+}
+
+#[cfg(test)]
+async fn run_phase3(
+    repo_path: String,
+    base_branch: Option<String>,
+    requirement: String,
+    clarifications: String,
+    decision: String,
+    session_id: Option<String>,
+    judge_provider: Option<String>,
+    judge_model: Option<String>,
+    agent_a_cli: Option<String>,
+    agent_b_cli: Option<String>,
+    runtime_config: Option<agents::RuntimeConfigInput>,
+    auto_cleanup: Option<bool>,
+) -> Result<Phase3Output, String> {
+    run_phase3_impl(
+        repo_path,
+        base_branch,
+        requirement,
+        clarifications,
+        decision,
+        session_id,
+        judge_provider,
+        judge_model,
+        agent_a_cli,
+        agent_b_cli,
+        runtime_config,
+        auto_cleanup,
+        None,
+    )
+    .await
 }
 
 fn write_adr_markdown(
@@ -929,6 +1223,7 @@ fn preview_diff() -> String {
     git::diff_stub("agent-claude", "agent-gpt4o")
 }
 
+#[cfg(not(test))]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let _ = dotenvy::dotenv();
@@ -955,9 +1250,13 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
+#[cfg(not(test))]
 fn main() {
     run();
 }
+
+#[cfg(test)]
+fn main() {}
 
 #[cfg(test)]
 mod tests {
@@ -1310,9 +1609,14 @@ echo '{{"type":"step_finish","part":{{"type":"step-finish","reason":"stop"}}}}'
     }
 
     fn setup_fake_opencode_models_cli(lines: &[&str]) -> Result<(PathBuf, PathBuf), String> {
-        let root = std::env::temp_dir().join(format!("friction-opencode-models-{}", Uuid::new_v4()));
-        fs::create_dir_all(&root)
-            .map_err(|err| format!("failed to create fake opencode models dir {:?}: {err}", root))?;
+        let root =
+            std::env::temp_dir().join(format!("friction-opencode-models-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).map_err(|err| {
+            format!(
+                "failed to create fake opencode models dir {:?}: {err}",
+                root
+            )
+        })?;
         let payload = lines.join("\\n");
         let script = format!(
             r#"#!/usr/bin/env bash
@@ -1806,15 +2110,14 @@ exit 2
         let _legacy_mode = EnvVarGuard::set("FRICTION_ENABLE_LEGACY_PROVIDER_MODE", "0");
         let _openai_key = EnvVarGuard::unset("OPENAI_API_KEY");
         let _codex_home = EnvVarGuard::unset("CODEX_HOME");
-        let temp_home = std::env::temp_dir().join(format!("friction-codex-home-missing-{}", Uuid::new_v4()));
+        let temp_home =
+            std::env::temp_dir().join(format!("friction-codex-home-missing-{}", Uuid::new_v4()));
         fs::create_dir_all(&temp_home).expect("temp home for missing codex auth should exist");
         let _home = EnvVarGuard::set("HOME", temp_home.to_string_lossy().as_ref());
         let (cli_root, _claude_path, codex_path, _gemini_path) =
             setup_fake_phase12_clis().expect("fake phase1/2 cli scripts should be created");
-        let runtime_config = runtime_cli_config(&[(
-            "codex",
-            codex_path.to_string_lossy().to_string(),
-        )]);
+        let runtime_config =
+            runtime_cli_config(&[("codex", codex_path.to_string_lossy().to_string())]);
 
         let diagnostics = diagnose_phase12_cli(
             None,
@@ -1838,15 +2141,18 @@ exit 2
         assert!(!diagnostics.agents[0].runtime_ready);
         assert_eq!(diagnostics.agents[0].readiness_source, "none");
         assert!(diagnostics.agents[0].requires_auth);
-        assert!(
-            diagnostics.agents[0]
-                .readiness_reason
-                .as_deref()
-                .unwrap_or_default()
-                .contains("Codex auth missing in isolated runtime")
-        );
-        assert!(diagnostics.agents[1].runtime_ready);
-        assert!(!diagnostics.agents[1].requires_auth);
+        assert!(diagnostics.agents[0]
+            .readiness_reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("Codex auth missing in isolated runtime"));
+        assert!(!diagnostics.agents[1].runtime_ready);
+        assert!(diagnostics.agents[1].requires_auth);
+        assert!(diagnostics.agents[1]
+            .readiness_reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("Gemini auth missing in strict phase1/2 isolation"));
 
         let _ = fs::remove_dir_all(temp_home);
         let _ = fs::remove_dir_all(cli_root);
@@ -1858,7 +2164,8 @@ exit 2
         let _legacy_mode = EnvVarGuard::set("FRICTION_ENABLE_LEGACY_PROVIDER_MODE", "0");
         let _openai_key = EnvVarGuard::unset("OPENAI_API_KEY");
         let _codex_home = EnvVarGuard::unset("CODEX_HOME");
-        let temp_home = std::env::temp_dir().join(format!("friction-codex-home-auth-{}", Uuid::new_v4()));
+        let temp_home =
+            std::env::temp_dir().join(format!("friction-codex-home-auth-{}", Uuid::new_v4()));
         let codex_home_dir = temp_home.join(".codex");
         fs::create_dir_all(&codex_home_dir).expect("temp codex home should exist");
         fs::write(codex_home_dir.join("auth.json"), "{\"token\":\"x\"}")
@@ -1866,10 +2173,8 @@ exit 2
         let _home = EnvVarGuard::set("HOME", temp_home.to_string_lossy().as_ref());
         let (cli_root, _claude_path, codex_path, _gemini_path) =
             setup_fake_phase12_clis().expect("fake phase1/2 cli scripts should be created");
-        let runtime_config = runtime_cli_config(&[(
-            "codex",
-            codex_path.to_string_lossy().to_string(),
-        )]);
+        let runtime_config =
+            runtime_cli_config(&[("codex", codex_path.to_string_lossy().to_string())]);
 
         let diagnostics = diagnose_phase12_cli(
             None,
@@ -2043,11 +2348,9 @@ exit 1
     #[tokio::test]
     #[serial]
     async fn list_cli_models_returns_live_models_for_opencode() {
-        let (cli_root, opencode_path) = setup_fake_opencode_models_cli(&[
-            "opencode/gpt-5-nano",
-            "opencode/minimax-m2.5-free",
-        ])
-        .expect("fake opencode models cli should be created");
+        let (cli_root, opencode_path) =
+            setup_fake_opencode_models_cli(&["opencode/gpt-5-nano", "opencode/minimax-m2.5-free"])
+                .expect("fake opencode models cli should be created");
         let runtime_config =
             runtime_cli_config(&[("opencode", opencode_path.to_string_lossy().to_string())]);
 
@@ -2071,9 +2374,8 @@ exit 1
     #[tokio::test]
     #[serial]
     async fn list_cli_models_returns_cache_on_second_call_for_same_alias_and_command() {
-        let (cli_root, opencode_path) =
-            setup_fake_opencode_models_cli(&["opencode/gpt-5-nano"])
-                .expect("fake opencode models cli should be created");
+        let (cli_root, opencode_path) = setup_fake_opencode_models_cli(&["opencode/gpt-5-nano"])
+            .expect("fake opencode models cli should be created");
         let runtime_config =
             runtime_cli_config(&[("opencode", opencode_path.to_string_lossy().to_string())]);
 
@@ -2095,11 +2397,75 @@ exit 1
 
     #[tokio::test]
     #[serial]
-    async fn list_cli_models_returns_fallback_for_codex_when_live_listing_unavailable() {
+    async fn list_cli_models_preserves_cached_live_models_when_refresh_falls_back() {
         let root = std::env::temp_dir().join(format!(
-            "friction-codex-models-fallback-{}",
+            "friction-opencode-models-preserve-live-cache-{}",
             Uuid::new_v4()
         ));
+        fs::create_dir_all(&root).expect("temp dir for live cache preservation test");
+        let fail_marker = root.join("fallback-after-first-call.marker");
+        let script = make_script(
+            &root,
+            "fake-opencode-models-preserve-live-cache",
+            &format!(
+                r#"#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${{1:-}}" != "models" ]]; then
+  echo "unexpected command: $*" >&2
+  exit 2
+fi
+if [[ -f "{}" ]]; then
+  echo "transient upstream failure" >&2
+  exit 1
+fi
+touch "{}"
+echo "opencode/gpt-5-nano"
+"#,
+                fail_marker.to_string_lossy(),
+                fail_marker.to_string_lossy(),
+            ),
+        )
+        .expect("fake opencode cache preservation script should be created");
+        let runtime_config =
+            runtime_cli_config(&[("opencode", script.to_string_lossy().to_string())]);
+
+        let first = list_cli_models("opencode".to_string(), Some(runtime_config.clone()), None)
+            .await
+            .expect("first opencode listing should succeed");
+        assert_eq!(first.source, "live");
+        assert_eq!(first.models, vec!["opencode/gpt-5-nano".to_string()]);
+
+        let second = list_cli_models("opencode".to_string(), Some(runtime_config), Some(true))
+            .await
+            .expect("forced refresh fallback should preserve cached live models");
+        assert_eq!(second.source, "cache");
+        assert!(second.stale);
+        assert_eq!(second.models, vec!["opencode/gpt-5-nano".to_string()]);
+        assert!(
+            second
+                .reason
+                .unwrap_or_default()
+                .contains("served cached live inventory"),
+            "expected reason to explain cached-live preservation"
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn list_cli_models_returns_fallback_for_codex_when_live_listing_unavailable() {
+        let _legacy_mode = EnvVarGuard::set("FRICTION_ENABLE_LEGACY_PROVIDER_MODE", "0");
+        let _openai_key = EnvVarGuard::unset("OPENAI_API_KEY");
+        let _codex_home = EnvVarGuard::unset("CODEX_HOME");
+        let temp_home =
+            std::env::temp_dir().join(format!("friction-codex-fallback-home-{}", Uuid::new_v4()));
+        fs::create_dir_all(temp_home.join(".codex"))
+            .expect("temp codex home for fallback should be created");
+        let _home = EnvVarGuard::set("HOME", temp_home.to_string_lossy().as_ref());
+
+        let root =
+            std::env::temp_dir().join(format!("friction-codex-models-fallback-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).expect("temp dir for codex fallback listing test");
         let codex_script = make_script(
             &root,
@@ -2135,8 +2501,8 @@ exit 2
             payload
                 .reason
                 .unwrap_or_default()
-                .contains("OPENAI_API_KEY is missing"),
-            "expected fallback reason to mention missing OPENAI_API_KEY"
+                .contains("credentials missing"),
+            "expected fallback reason to mention missing credentials"
         );
         assert_eq!(
             payload.models,
@@ -2147,7 +2513,131 @@ exit 2
             ]
         );
 
+        let _ = fs::remove_dir_all(temp_home);
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn list_cli_models_uses_codex_local_cache_before_provider_api() {
+        let _legacy_mode = EnvVarGuard::set("FRICTION_ENABLE_LEGACY_PROVIDER_MODE", "0");
+        let _openai_key = EnvVarGuard::unset("OPENAI_API_KEY");
+        let _codex_home = EnvVarGuard::unset("CODEX_HOME");
+
+        let temp_home = std::env::temp_dir().join(format!(
+            "friction-codex-local-cache-home-{}",
+            Uuid::new_v4()
+        ));
+        let codex_home = temp_home.join(".codex");
+        fs::create_dir_all(&codex_home).expect("temp codex home should be created");
+        fs::write(
+            codex_home.join("models_cache.json"),
+            r#"{
+  "fetched_at":"2026-03-05T00:00:00Z",
+  "models":[
+    {"slug":"gpt-5-codex"},
+    {"slug":"gpt-5.3-codex"},
+    {"slug":"o4-mini"}
+  ]
+}"#,
+        )
+        .expect("codex models cache should be written");
+        let _home = EnvVarGuard::set("HOME", temp_home.to_string_lossy().as_ref());
+
+        let root =
+            std::env::temp_dir().join(format!("friction-codex-local-cache-cli-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("temp dir for codex local cache cli test");
+        let codex_script = make_script(
+            &root,
+            "fake-codex-local-cache",
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--help" ]]; then
+  echo "Usage: codex [OPTIONS]"
+  exit 0
+fi
+echo "unexpected command: $*" >&2
+exit 2
+"#,
+        )
+        .expect("fake codex local cache script should be created");
+        let runtime_config =
+            runtime_cli_config(&[("codex", codex_script.to_string_lossy().to_string())]);
+
+        let payload = list_cli_models("codex".to_string(), Some(runtime_config), Some(true))
+            .await
+            .expect("list_cli_models should return local codex cache");
+
+        assert_eq!(payload.source, "live");
+        assert_eq!(payload.reason, None);
+        assert_eq!(payload.provider_mode.as_deref(), Some("codex-local-cache"));
+        assert_eq!(
+            payload.models,
+            vec![
+                "gpt-5-codex".to_string(),
+                "gpt-5.3-codex".to_string(),
+                "o4-mini".to_string()
+            ]
+        );
+
+        let _ = fs::remove_dir_all(temp_home);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn list_cli_models_uses_gemini_local_usage_before_provider_api() {
+        let _legacy_mode = EnvVarGuard::set("FRICTION_ENABLE_LEGACY_PROVIDER_MODE", "0");
+        let _gemini_api_key = EnvVarGuard::unset("GEMINI_API_KEY");
+        let _google_api_key = EnvVarGuard::unset("GOOGLE_API_KEY");
+        let _google_gen_api_key = EnvVarGuard::unset("GOOGLE_GENERATIVE_AI_API_KEY");
+        let _vertex_flag = EnvVarGuard::unset("GOOGLE_GENAI_USE_VERTEXAI");
+        let _vertex_project = EnvVarGuard::unset("GOOGLE_CLOUD_PROJECT");
+
+        let temp_home = std::env::temp_dir().join(format!(
+            "friction-gemini-local-usage-home-{}",
+            Uuid::new_v4()
+        ));
+        let chats_dir = temp_home
+            .join(".gemini")
+            .join("tmp")
+            .join("friction")
+            .join("chats");
+        fs::create_dir_all(&chats_dir).expect("temp gemini chats dir should be created");
+        fs::write(
+            chats_dir.join("session-2026-03-05T11-00-test.json"),
+            r#"{
+  "turns": [
+    { "model": "gemini-3-flash-preview", "text": "a" },
+    { "meta": { "model": "gemini-2.5-pro" } }
+  ]
+}"#,
+        )
+        .expect("gemini local usage file should be written");
+        let _home = EnvVarGuard::set("HOME", temp_home.to_string_lossy().as_ref());
+
+        let (cli_root, _claude_path, _codex_path, gemini_path) =
+            setup_fake_phase12_clis().expect("fake phase1/2 cli scripts should be created");
+        let runtime_config =
+            runtime_cli_config(&[("gemini", gemini_path.to_string_lossy().to_string())]);
+
+        let payload = list_cli_models("gemini".to_string(), Some(runtime_config), Some(true))
+            .await
+            .expect("list_cli_models should return gemini local usage");
+
+        assert_eq!(payload.source, "live");
+        assert_eq!(payload.reason, None);
+        assert_eq!(payload.provider_mode.as_deref(), Some("gemini-local-usage"));
+        assert_eq!(
+            payload.models,
+            vec![
+                "gemini-2.5-pro".to_string(),
+                "gemini-3-flash-preview".to_string()
+            ]
+        );
+
+        let _ = fs::remove_dir_all(temp_home);
+        let _ = fs::remove_dir_all(cli_root);
     }
 
     #[tokio::test]
@@ -2239,10 +2729,8 @@ exit 2
     #[serial]
     async fn phase1_passes_opencode_model_override_from_runtime_config() {
         let _legacy_mode = EnvVarGuard::set("FRICTION_ENABLE_LEGACY_PROVIDER_MODE", "0");
-        let _expected_model = EnvVarGuard::set(
-            "FRICTION_EXPECTED_OPENCODE_MODEL",
-            "openai/gpt-5-codex",
-        );
+        let _expected_model =
+            EnvVarGuard::set("FRICTION_EXPECTED_OPENCODE_MODEL", "openai/gpt-5-codex");
         let (cli_root, opencode_path) = setup_fake_opencode_cli(
             r#"{"interpretation":"opencode interpretation","assumptions":["o1","o2"],"risks":["or1","or2"],"questions":["oq1","oq2"],"approach":"opencode path"}"#,
             r#"{"stack":["opencode","tauri"],"phases":[{"name":"phase","duration":"1d","tasks":["task-op-a","task-op-b"]}],"architecture":"opencode planner architecture","tradeoffs":["cost vs speed"],"warnings":["watch opencode constraints"]}"#,
@@ -2286,7 +2774,8 @@ exit 2
         let (cli_root, claude_path, codex_path, gemini_path) =
             setup_fake_phase12_clis().expect("fake phase1/2 cli scripts should be created");
 
-        let mut runtime_config = runtime_cli_config_from_paths(&claude_path, &codex_path, &gemini_path);
+        let mut runtime_config =
+            runtime_cli_config_from_paths(&claude_path, &codex_path, &gemini_path);
         runtime_config.cli_models = Some(std::collections::HashMap::from([(
             "claude".to_string(),
             "claude-sonnet-4-5".to_string(),
@@ -2304,7 +2793,10 @@ exit 2
 
         assert_eq!(phase1.agent_responses[0].cli, "claude");
         assert!(
-            phase1.architect.interpretation.contains("cli-first interpretation"),
+            phase1
+                .architect
+                .interpretation
+                .contains("cli-first interpretation"),
             "Agent A response should come from claude CLI"
         );
 
@@ -2320,7 +2812,8 @@ exit 2
         let (cli_root, claude_path, codex_path, gemini_path) =
             setup_fake_phase12_clis().expect("fake phase1/2 cli scripts should be created");
 
-        let mut runtime_config = runtime_cli_config_from_paths(&claude_path, &codex_path, &gemini_path);
+        let mut runtime_config =
+            runtime_cli_config_from_paths(&claude_path, &codex_path, &gemini_path);
         runtime_config.cli_models = Some(std::collections::HashMap::from([(
             "codex".to_string(),
             "gpt-5-codex".to_string(),
@@ -2355,7 +2848,8 @@ exit 2
         let (cli_root, claude_path, codex_path, gemini_path) =
             setup_fake_phase12_clis().expect("fake phase1/2 cli scripts should be created");
 
-        let mut runtime_config = runtime_cli_config_from_paths(&claude_path, &codex_path, &gemini_path);
+        let mut runtime_config =
+            runtime_cli_config_from_paths(&claude_path, &codex_path, &gemini_path);
         runtime_config.cli_models = Some(std::collections::HashMap::from([(
             "gemini".to_string(),
             "gemini-2.5-flash".to_string(),
@@ -2384,10 +2878,8 @@ exit 2
     #[serial]
     async fn phase1_supports_agent_scoped_opencode_models() {
         let _legacy_mode = EnvVarGuard::set("FRICTION_ENABLE_LEGACY_PROVIDER_MODE", "0");
-        let root = std::env::temp_dir().join(format!(
-            "friction-opencode-agent-models-{}",
-            Uuid::new_v4()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("friction-opencode-agent-models-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).expect("temp dir for opencode per-agent models");
         let opencode_script = make_script(
             &root,
@@ -2624,10 +3116,8 @@ printf '{"interpretation":"%s","assumptions":["%s","state:%s"],"risks":["r"],"qu
         let _legacy_mode = EnvVarGuard::set("FRICTION_ENABLE_LEGACY_PROVIDER_MODE", "0");
         let _openai_key = EnvVarGuard::unset("OPENAI_API_KEY");
         let _codex_home = EnvVarGuard::unset("CODEX_HOME");
-        let home_root = std::env::temp_dir().join(format!(
-            "friction-codex-bridge-home-{}",
-            Uuid::new_v4()
-        ));
+        let home_root =
+            std::env::temp_dir().join(format!("friction-codex-bridge-home-{}", Uuid::new_v4()));
         fs::create_dir_all(home_root.join(".codex")).expect("temp codex home should be created");
         fs::write(
             home_root.join(".codex").join("auth.json"),
@@ -2702,14 +3192,86 @@ fi
 
     #[tokio::test]
     #[serial]
+    async fn phase1_gemini_strict_isolation_bridges_auth_config_into_isolated_home() {
+        let _legacy_mode = EnvVarGuard::set("FRICTION_ENABLE_LEGACY_PROVIDER_MODE", "0");
+        let _gemini_api_key = EnvVarGuard::unset("GEMINI_API_KEY");
+        let _google_api_key = EnvVarGuard::unset("GOOGLE_API_KEY");
+        let _google_gen_api_key = EnvVarGuard::unset("GOOGLE_GENERATIVE_AI_API_KEY");
+        let _gemini_home = EnvVarGuard::unset("GEMINI_HOME");
+
+        let home_root =
+            std::env::temp_dir().join(format!("friction-gemini-bridge-home-{}", Uuid::new_v4()));
+        let gemini_home = home_root.join(".gemini");
+        fs::create_dir_all(&gemini_home).expect("temp gemini home should be created");
+        fs::write(
+            gemini_home.join("settings.json"),
+            r#"{"security":{"auth":{"selectedType":"oauth-personal"}}}"#,
+        )
+        .expect("temp gemini settings should be created");
+        fs::write(
+            gemini_home.join("oauth_creds.json"),
+            r#"{"access_token":"fake","expiry_date":9999999999999}"#,
+        )
+        .expect("temp gemini oauth creds should be created");
+        let _home = EnvVarGuard::set("HOME", home_root.to_string_lossy().as_ref());
+
+        let root =
+            std::env::temp_dir().join(format!("friction-gemini-bridge-cli-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("temp dir for gemini bridge test");
+        let marker = root.join("gemini-bridge-marker.txt");
+        let gemini_script = make_script(
+            &root,
+            "fake-gemini-bridge",
+            &format!(
+                r#"#!/usr/bin/env bash
+set -euo pipefail
+if [[ ! -f "${{HOME}}/.gemini/settings.json" ]]; then
+  echo "Please set an Auth method in your $HOME/.gemini/settings.json" >&2
+  exit 41
+fi
+if [[ ! -f "${{HOME}}/.gemini/oauth_creds.json" ]]; then
+  echo "missing oauth creds in isolated gemini home" >&2
+  exit 41
+fi
+printf 'bridged\n' > "{}"
+payload='{{"interpretation":"gemini bridge ready","assumptions":["g1","g2"],"risks":["r1","r2"],"questions":["q1","q2"],"approach":"bridge"}}'
+printf '%s\n' "$payload"
+"#,
+                marker.to_string_lossy()
+            ),
+        )
+        .expect("fake gemini bridge script should be created");
+        let runtime_config =
+            runtime_cli_config(&[("gemini", gemini_script.to_string_lossy().to_string())]);
+
+        let phase1 = run_phase1(
+            "Gemini strict bridge".to_string(),
+            Some("gemini".to_string()),
+            Some("gemini".to_string()),
+            None,
+            Some(runtime_config),
+        )
+        .await
+        .expect("phase1 should bridge gemini auth config into isolated HOME");
+
+        assert_eq!(phase1.architect.interpretation, "gemini bridge ready");
+        assert!(
+            marker.exists(),
+            "gemini bridge marker should exist when script executed with bridged auth config"
+        );
+
+        let _ = fs::remove_dir_all(home_root);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    #[serial]
     async fn phase1_codex_strict_isolation_fails_fast_when_auth_is_missing() {
         let _legacy_mode = EnvVarGuard::set("FRICTION_ENABLE_LEGACY_PROVIDER_MODE", "0");
         let _openai_key = EnvVarGuard::unset("OPENAI_API_KEY");
         let _codex_home = EnvVarGuard::unset("CODEX_HOME");
-        let home_root = std::env::temp_dir().join(format!(
-            "friction-codex-missing-home-{}",
-            Uuid::new_v4()
-        ));
+        let home_root =
+            std::env::temp_dir().join(format!("friction-codex-missing-home-{}", Uuid::new_v4()));
         fs::create_dir_all(&home_root).expect("temp home for codex missing auth should be created");
         let _home = EnvVarGuard::set("HOME", home_root.to_string_lossy().as_ref());
 
@@ -3141,7 +3703,8 @@ exit 42
     #[tokio::test]
     #[serial]
     async fn phase1_fails_when_cli_json_is_semantically_empty() {
-        let root = std::env::temp_dir().join(format!("friction-cli-empty-phase1-{}", Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("friction-cli-empty-phase1-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).expect("temp dir for empty phase1 cli should be created");
         let empty_script = make_script(
             &root,
@@ -3165,7 +3728,8 @@ exit 42
         .expect_err("phase1 should fail on semantically empty JSON payload");
 
         assert!(
-            err.contains("empty response payload"),
+            err.contains("Failed to locate any valid JSON object")
+                || err.contains("missing_expected_keys"),
             "unexpected error message: {err}"
         );
 
@@ -3175,7 +3739,8 @@ exit 42
     #[tokio::test]
     #[serial]
     async fn phase2_fails_when_cli_plan_is_semantically_empty() {
-        let root = std::env::temp_dir().join(format!("friction-cli-empty-phase2-{}", Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("friction-cli-empty-phase2-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).expect("temp dir for empty phase2 cli should be created");
         let empty_script = make_script(
             &root,
@@ -3200,7 +3765,8 @@ exit 42
         .expect_err("phase2 should fail on semantically empty plan payload");
 
         assert!(
-            err.contains("empty plan payload"),
+            err.contains("Failed to locate any valid JSON object")
+                || err.contains("missing_expected_keys"),
             "unexpected error message: {err}"
         );
 
@@ -3235,6 +3801,41 @@ exit 42
         .expect_err("phase1 should fail when cli exceeds timeout");
 
         assert!(err.contains("timed out"), "unexpected error message: {err}");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn phase1_recovers_when_cli_times_out_after_emitting_output() {
+        let root =
+            std::env::temp_dir().join(format!("friction-cli-timeout-recover-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("temp dir for timeout-recover cli should be created");
+        let eager_script = make_script(
+            &root,
+            "fake-timeout-recover-claude",
+            "#!/usr/bin/env bash\nset -euo pipefail\necho '{\"interpretation\":\"ok\",\"assumptions\":[\"a\"],\"risks\":[\"r\"],\"questions\":[\"q\"],\"approach\":\"p\"}'\nsleep 2\n",
+        )
+        .expect("timeout-recover script should be created");
+
+        let _legacy_mode = EnvVarGuard::set("FRICTION_ENABLE_LEGACY_PROVIDER_MODE", "0");
+        let _timeout = EnvVarGuard::set("FRICTION_PHASE3_CLI_TIMEOUT_SECS", "1");
+        let runtime_config =
+            runtime_cli_config(&[("claude", eager_script.to_string_lossy().to_string())]);
+
+        let phase1 = run_phase1(
+            "Timeout with early output".to_string(),
+            Some("claude".to_string()),
+            Some("claude".to_string()),
+            None,
+            Some(runtime_config),
+        )
+        .await
+        .expect("phase1 should recover timeout when output already exists");
+
+        assert_eq!(phase1.agent_responses.len(), 2);
+        assert_eq!(phase1.agent_responses[0].response.interpretation, "ok");
+        assert_eq!(phase1.agent_responses[1].response.interpretation, "ok");
 
         let _ = fs::remove_dir_all(root);
     }
