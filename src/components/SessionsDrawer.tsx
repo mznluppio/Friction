@@ -39,7 +39,7 @@ export function SessionsDrawer({
             <div>
               <Dialog.Title className="text-base font-semibold text-friction-text">Sessions</Dialog.Title>
               <Dialog.Description className="mt-1 text-xs text-friction-muted">
-                Load a previous session snapshot.
+                Load an auto-saved session or snapshot.
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>
@@ -67,10 +67,15 @@ export function SessionsDrawer({
                   ].join(" ")}
                 >
                   <div className="session-row-main">
-                    <p className="text-sm font-semibold text-friction-text">{session.id.slice(0, 8)}</p>
-                    <p className="line-clamp-2 text-xs text-friction-muted">{session.requirementPreview}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold text-friction-text">{session.title}</p>
+                      <span className="inline-flex min-h-6 items-center rounded-full border border-friction-border px-2 text-[10px] uppercase tracking-[0.12em] text-friction-muted">
+                        {session.status.replace("_", " ")}
+                      </span>
+                    </div>
+                    <p className="line-clamp-2 text-xs text-friction-muted">{session.problemPreview}</p>
                     <p className="text-xs text-friction-muted">
-                      {session.domain} · {session.complexity} · {formatDateTime(session.createdAt)}
+                      {session.domain} · {session.complexity} · {formatDateTime(session.updatedAt)}
                     </p>
                   </div>
                 </button>
@@ -101,7 +106,7 @@ export function SessionsDrawer({
               disabled={!canPersistSession || saveLocalLoading}
             >
               <Save className="h-4 w-4" aria-hidden="true" />
-              {saveLocalLoading ? "Saving…" : "Save"}
+              {saveLocalLoading ? "Saving…" : "Snapshot"}
             </Button>
             <Button
               variant="ghost"

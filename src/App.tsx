@@ -4,13 +4,7 @@ import {
 } from "@assistant-ui/react";
 import { Thread, ThreadList } from "@assistant-ui/react-ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  ArrowDown,
-  Download,
-  PanelLeft,
-  Save,
-  Settings2,
-} from "lucide-react";
+import { ArrowDown, Download, PanelLeft, Save, Settings2 } from "lucide-react";
 import { AgentCard } from "./components/AgentCard";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { DiffViewer } from "./components/DiffViewer";
@@ -23,13 +17,10 @@ import { ThemeProvider, ThemeToggle } from "./components/ThemeProvider";
 import { CodeCard } from "./components/chat/CodeCard";
 import { ConversationShell } from "./components/chat/ConversationShell";
 import { CommandTimelineCard } from "./components/chat/CommandTimelineCard";
-import { DecisionPhase2Inline } from "./components/chat/DecisionPhase2Inline";
+import { ExecutionBriefCard } from "./components/chat/ExecutionBriefCard";
 import { FrictionPhase1Inline } from "./components/chat/FrictionPhase1Inline";
-import { FrictionInboxCard } from "./components/chat/FrictionInboxCard";
-import { Phase3ValidateInline } from "./components/chat/Phase3ValidateInline";
 import { PlanCard } from "./components/chat/PlanCard";
 import { AssistantMessageArtifactAware } from "./components/chat/AssistantMessageArtifactAware";
-import { WorkflowDoneInline } from "./components/chat/WorkflowDoneInline";
 import { WorkflowPromptInput } from "./components/chat/prompt-input/WorkflowPromptInput";
 import { SuggestionChips } from "./components/chat/SuggestionChips";
 import { TaskRail } from "./components/chat/TaskRail";
@@ -66,6 +57,7 @@ import type {
   ConversationItem,
   ConversationMetaPayload,
   Divergence,
+  ExecutionBrief,
   FrictionInboxDraft,
   FrictionResolutionChoice,
   FrictionSession,
@@ -80,9 +72,12 @@ import type {
   Phase1Result,
   Phase2Result,
   Phase3Result,
+  PlanScorecardRow,
   RouteState,
   RuntimeSettings,
+  SessionStatus,
   SessionSummary,
+  TopDisagreement,
   UnsavedState,
   WorkflowStep,
 } from "./lib/types";
@@ -106,9 +101,16 @@ const MarkdownText = (props: any) => (
 const SETTINGS_KEY = "friction.settings.v1";
 const CLI_SETUP_KEY_V2 = "friction.cliSetup.v2.complete";
 const CLI_SETUP_KEY_LEGACY_V1 = "friction.cliSetup.v1.complete";
-const DRAFT_KEY = "friction.draft";
+const LEGACY_DRAFT_KEY = "friction.draft";
+const AUTOSAVE_MIN_NON_WHITESPACE = 8;
+const AUTOSAVE_DEBOUNCE_MS = 800;
 
-const JUDGE_PROVIDER_OPTIONS: JudgeProvider[] = ["haiku", "flash", "ollama"];
+const JUDGE_PROVIDER_OPTIONS: JudgeProvider[] = [
+  "haiku",
+  "flash",
+  "ollama",
+  "opencode",
+];
 const AGENT_CLI_OPTIONS: AgentCli[] = ["claude", "codex", "gemini", "opencode"];
 
 const DEFAULT_JUDGE_PROVIDER: JudgeProvider = "haiku";
@@ -122,31 +124,31 @@ const PHASE_AGENT_PRESETS: {
   defaultCli: AgentCli;
   directionDescription: string;
 }[] = [
-    {
-      id: "agent_a",
-      label: "Agent A · Architect",
-      defaultCli: DEFAULT_AGENT_A_CLI,
-      directionDescription: "Robustness and long-term architecture.",
-    },
-    {
-      id: "agent_b",
-      label: "Agent B · Pragmatist",
-      defaultCli: DEFAULT_AGENT_B_CLI,
-      directionDescription: "Fastest practical delivery path.",
-    },
-    {
-      id: "agent_c",
-      label: "Agent C · Challenger",
-      defaultCli: "gemini",
-      directionDescription: "Independent critical perspective.",
-    },
-    {
-      id: "agent_d",
-      label: "Agent D · Operator",
-      defaultCli: "claude",
-      directionDescription: "Operations, reliability, and cost.",
-    },
-  ];
+  {
+    id: "agent_a",
+    label: "Agent A · Architect",
+    defaultCli: DEFAULT_AGENT_A_CLI,
+    directionDescription: "Robustness and long-term architecture.",
+  },
+  {
+    id: "agent_b",
+    label: "Agent B · Pragmatist",
+    defaultCli: DEFAULT_AGENT_B_CLI,
+    directionDescription: "Fastest practical delivery path.",
+  },
+  {
+    id: "agent_c",
+    label: "Agent C · Challenger",
+    defaultCli: "gemini",
+    directionDescription: "Independent critical perspective.",
+  },
+  {
+    id: "agent_d",
+    label: "Agent D · Operator",
+    defaultCli: "claude",
+    directionDescription: "Operations, reliability, and cost.",
+  },
+];
 
 const CLI_DETECTION_PRIORITY: AgentCli[] = [
   "claude",
@@ -172,31 +174,31 @@ const THREAD_SCROLL_BOTTOM_VISIBILITY_THRESHOLD_PX = 80;
 
 const SUGGESTION_SETS: Record<WorkflowStep, string[]> = {
   requirement: [],
-  clarifications: [],
-  decision: [],
-  phase3_config: [],
-  phase3_run: [],
-  completed: [
-    "Save session",
+  friction: [],
+  brief: [
+    "Create snapshot",
     "Export session",
     "Export consented dataset",
     "New session",
   ],
+  phase3_run: [],
 };
 
 const PROMPT_HINTS: Record<WorkflowStep, string> = {
-  requirement: "Describe the feature or system requirement in detail…",
-  clarifications:
-    "Resolve friction points in the inline card, then click Resolve & Run Phase 2…",
-  decision: "Use the inline arbitration block to apply the Phase 2 decision…",
-  phase3_config:
-    "Use the inline Phase 3 block to run validation…",
-  phase3_run: "Validation running…",
-  completed: "Workflow completed — use the inline Done actions below.",
+  requirement: "Describe the bug, decision, hypothesis, or open problem…",
+  friction:
+    "Resolve the top 3 disagreements in the inline card. Add one context note only if needed…",
+  brief:
+    "Action brief ready — export it or open proof mode if you need repo evidence.",
+  phase3_run: "Proof mode running…",
 };
 
-function withTrimmed(value: string): string {
-  return value.trim();
+function withTrimmed(value: string | null | undefined): string {
+  return (value ?? "").trim();
+}
+
+function nonWhitespaceLength(value: string): number {
+  return value.replace(/\s+/g, "").length;
 }
 
 function buildDefaultPhaseAgents(count = 2): PhaseAgentRuntime[] {
@@ -368,13 +370,47 @@ function phase2AgentsFromResult(
   ];
 }
 
-const MIN_FRICTION_RATIONALE_LENGTH = 12;
-
-function frictionResolutionKey(
-  divergence: Divergence,
-  index: number,
-): string {
+function frictionResolutionKey(divergence: Divergence, index: number): string {
   return `${divergence.field}:${index}`;
+}
+
+function severityWeight(severity: Divergence["severity"]): number {
+  if (severity === "high") return 0;
+  if (severity === "medium") return 1;
+  return 2;
+}
+
+function deriveTopDisagreements(
+  result: Phase1Result | null,
+): TopDisagreement[] {
+  if (!result) return [];
+
+  return result.divergences
+    .map((divergence, index) => ({
+      key: frictionResolutionKey(divergence, index),
+      index,
+      field: divergence.field,
+      severity: divergence.severity,
+      disagreementScore: divergence.disagreementScore,
+      divergence,
+    }))
+    .sort((left, right) => {
+      const severityDelta =
+        severityWeight(left.severity) - severityWeight(right.severity);
+      if (severityDelta !== 0) return severityDelta;
+
+      const scoreDelta =
+        (right.disagreementScore ?? Number.NEGATIVE_INFINITY) -
+        (left.disagreementScore ?? Number.NEGATIVE_INFINITY);
+      if (scoreDelta !== 0) return scoreDelta;
+
+      return left.index - right.index;
+    })
+    .slice(0, 3)
+    .map((item, rank) => ({
+      ...item,
+      rank,
+    }));
 }
 
 function normalizeFrictionRationale(value: string): string {
@@ -415,6 +451,7 @@ function normalizeFrictionInboxDraft(
   return {
     ...draft,
     direction: normalizeFrictionChoice(draft.direction),
+    contextNote: typeof draft.contextNote === "string" ? draft.contextNote : "",
     resolutions: draft.resolutions.map((item) => ({
       ...item,
       choice: normalizeFrictionChoice(item.choice),
@@ -423,15 +460,49 @@ function normalizeFrictionInboxDraft(
 }
 
 function createFrictionInboxDraft(result: Phase1Result): FrictionInboxDraft {
+  const topDisagreements = deriveTopDisagreements(result);
   return {
-    status: result.divergences.length === 0 ? "ready" : "draft",
-    resolutions: result.divergences.map((divergence, index) => ({
-      key: frictionResolutionKey(divergence, index),
-      field: divergence.field,
-      severity: divergence.severity,
+    status: topDisagreements.length === 0 ? "ready" : "draft",
+    contextNote: "",
+    resolutions: topDisagreements.map((item) => ({
+      key: item.key,
+      field: item.field,
+      severity: item.severity,
       rationale: "",
     })),
   };
+}
+
+function reconcileFrictionInboxDraft(
+  result: Phase1Result,
+  draft: FrictionInboxDraft | null | undefined,
+): FrictionInboxDraft {
+  const topDisagreements = deriveTopDisagreements(result);
+  const normalizedDraft = draft ? normalizeFrictionInboxDraft(draft) : null;
+  const resolutions = topDisagreements.map((item) => {
+    const previous = normalizedDraft?.resolutions.find(
+      (entry) => entry.key === item.key,
+    );
+    return {
+      key: item.key,
+      field: item.field,
+      severity: item.severity,
+      choice: previous?.choice,
+      rationale: previous?.rationale ?? "",
+    };
+  });
+
+  const nextDraft: FrictionInboxDraft = {
+    direction: normalizedDraft?.direction,
+    contextNote: normalizedDraft?.contextNote ?? "",
+    resolutions,
+    status: topDisagreements.length === 0 ? "ready" : "draft",
+  };
+
+  nextDraft.status = computeFrictionGateState(result, nextDraft).ready
+    ? "ready"
+    : "draft";
+  return nextDraft;
 }
 
 function computeFrictionGateState(
@@ -440,57 +511,18 @@ function computeFrictionGateState(
 ): { ready: boolean; invalidKeys: string[] } {
   if (!result || !draft) return { ready: false, invalidKeys: [] };
 
-  const invalidKeys = result.divergences
-    .map((divergence, index) => frictionResolutionKey(divergence, index))
+  const invalidKeys = deriveTopDisagreements(result)
+    .map((item) => item.key)
     .filter((key) => {
       const entry = draft.resolutions.find((item) => item.key === key);
-      if (!entry?.choice) return true;
-      return (
-        normalizeFrictionRationale(entry.rationale).length <
-        MIN_FRICTION_RATIONALE_LENGTH
-      );
+      return !entry?.choice;
     });
 
   return {
-    ready: result.divergences.length === 0 || invalidKeys.length === 0,
+    ready:
+      deriveTopDisagreements(result).length === 0 || invalidKeys.length === 0,
     invalidKeys,
   };
-}
-
-function inferFrictionDirection(
-  draft: FrictionInboxDraft,
-): FrictionResolutionChoice {
-  if (draft.direction) {
-    const normalizedDirection = normalizeFrictionChoice(draft.direction);
-    if (normalizedDirection) return normalizedDirection;
-  }
-
-  const votes = draft.resolutions
-    .map((item) => normalizeFrictionChoice(item.choice))
-    .filter((choice): choice is FrictionResolutionChoice => Boolean(choice));
-  if (votes.length === 0) return "hybrid";
-
-  const agentVoteCount = new Map<string, number>();
-  votes.forEach((choice) => {
-    const agentId = frictionChoiceAgentId(choice);
-    if (!agentId) return;
-    agentVoteCount.set(agentId, (agentVoteCount.get(agentId) ?? 0) + 1);
-  });
-
-  let topAgentId: string | null = null;
-  let topCount = 0;
-  agentVoteCount.forEach((count, agentId) => {
-    if (count > topCount) {
-      topAgentId = agentId;
-      topCount = count;
-    } else if (count === topCount) {
-      topAgentId = null;
-    }
-  });
-
-  if (!topAgentId) return "hybrid";
-  if (topCount * 2 <= votes.length) return "hybrid";
-  return `agent:${topAgentId}`;
 }
 
 function frictionChoiceLabel(
@@ -509,33 +541,360 @@ function buildClarificationsFromFrictionInbox(
   draft: FrictionInboxDraft,
   phase1Agents: PhaseAgentResponse[],
 ): string {
+  const topDisagreements = deriveTopDisagreements(result);
   const lines: string[] = [];
-  const inferredDirection = inferFrictionDirection(draft);
-  lines.push(`Direction: ${frictionChoiceLabel(inferredDirection, phase1Agents)}`);
-  lines.push("");
-  lines.push("Resolved friction points:");
+  const normalizedDirection = normalizeFrictionChoice(draft.direction);
 
-  if (result.divergences.length === 0) {
-    lines.push("- No friction points detected.");
+  if (normalizedDirection) {
+    lines.push(
+      `Direction override: ${frictionChoiceLabel(normalizedDirection, phase1Agents)}`,
+    );
+    lines.push("");
+  }
+
+  lines.push("Top disagreements:");
+
+  if (topDisagreements.length === 0) {
+    lines.push("- No disagreement selected.");
   } else {
-    result.divergences.forEach((divergence, index) => {
-      const key = frictionResolutionKey(divergence, index);
-      const entry = draft.resolutions.find((item) => item.key === key);
-      const normalizedChoice = normalizeFrictionChoice(entry?.choice) ?? "hybrid";
-      const choice =
-        normalizedChoice === "hybrid"
-          ? "Hybrid"
-          : `Prefer ${frictionChoiceLabel(normalizedChoice, phase1Agents)}`;
-      const rationale = normalizeFrictionRationale(entry?.rationale ?? "");
-      lines.push(`${index + 1}. [${divergence.field}] Choice: ${choice}`);
-      lines.push(`Rationale: ${rationale || "No rationale provided."}`);
+    topDisagreements.forEach((item, index) => {
+      const key = item.key;
+      const entry = draft.resolutions.find(
+        (resolution) => resolution.key === key,
+      );
+      const choice = normalizeFrictionChoice(entry?.choice) ?? "hybrid";
+      lines.push(
+        `${index + 1}. [${item.field}] -> ${frictionChoiceLabel(choice, phase1Agents)}`,
+      );
+      const note = normalizeFrictionRationale(entry?.rationale ?? "");
+      if (note) lines.push(`Note: ${note}`);
     });
   }
 
   lines.push("");
-  lines.push("Hard constraints:");
-  lines.push("None specified.");
+  lines.push("Context note:");
+  lines.push(withTrimmed(draft.contextNote) || "none provided");
   return lines.join("\n");
+}
+
+function buildNeutralScorecard(plans: PhaseAgentPlan[]): PlanScorecardRow[] {
+  return plans.map((plan) => ({
+    agentId: plan.id,
+    label: plan.label,
+    scores: {
+      robustness: 3,
+      deliverySpeed: 3,
+      implementationCost: 3,
+      operationalComplexity: 3,
+    },
+    total: 12,
+  }));
+}
+
+function findPhase2Plan(
+  plans: PhaseAgentPlan[],
+  agentId: string | null | undefined,
+): PhaseAgentPlan | null {
+  if (!agentId) return plans[0] ?? null;
+  return plans.find((plan) => plan.id === agentId) ?? plans[0] ?? null;
+}
+
+function collectNextSteps(plan: PhaseAgentPlan | null): string[] {
+  if (!plan) return [];
+  if (plan.plan.nextSteps.length > 0) {
+    return plan.plan.nextSteps.slice(0, 3);
+  }
+
+  const directTasks = plan.plan.phases.flatMap((phase) => phase.tasks);
+  if (directTasks.length > 0) return directTasks.slice(0, 3);
+
+  return plan.plan.phases
+    .slice(0, 3)
+    .map((phase) =>
+      withTrimmed(phase.duration)
+        ? `${phase.name} (${phase.duration})`
+        : phase.name,
+    );
+}
+
+function summarizeBaselineApproach(plan: PhaseAgentPlan | null): string {
+  if (!plan) return "No baseline approach captured.";
+
+  const strategy = withTrimmed(plan.plan.strategy);
+  const problemRead = withTrimmed(plan.plan.problemRead);
+  if (strategy && problemRead) {
+    return `${problemRead} Strategy: ${strategy}`;
+  }
+  if (strategy) return strategy;
+  if (problemRead) return problemRead;
+  const architecture = withTrimmed(plan.plan.architecture);
+  if (architecture) return architecture;
+  return "No baseline approach captured.";
+}
+
+function buildHumanDecisionStructuredFromBrief(
+  brief: ExecutionBrief,
+  plans: PhaseAgentPlan[],
+): HumanDecisionStructured {
+  return brief.mode === "winner"
+    ? {
+        mode: "winner",
+        winnerAgentId: brief.baselineAgentId,
+        scorecard: buildNeutralScorecard(plans),
+        rationale: brief.finalDecision,
+      }
+    : {
+        mode: "hybrid",
+        hybrid: {
+          baseAgentId: brief.baselineAgentId,
+        },
+        scorecard: buildNeutralScorecard(plans),
+        rationale: brief.mergeNote ?? brief.finalDecision,
+      };
+}
+
+function buildDecisionFromBrief(brief: ExecutionBrief): string {
+  const lines = [
+    `Decision mode: ${brief.mode}`,
+    `Problem frame: ${brief.problemFrame}`,
+    `Final decision: ${brief.finalDecision}`,
+    `Baseline: ${brief.baselineLabel}`,
+    `Main hypothesis: ${brief.mainHypothesis}`,
+    `Constraints: ${brief.constraints}`,
+    "",
+    "Accepted tradeoffs:",
+    ...fallbackList(
+      brief.acceptedTradeoffs,
+      "No explicit tradeoff captured.",
+    ).map((item) => `- ${item}`),
+    "",
+    "Next steps:",
+    ...fallbackList(brief.nextSteps, "No next step captured.").map(
+      (item) => `- ${item}`,
+    ),
+    "",
+    "Open risks:",
+    ...fallbackList(brief.openRisks, "No explicit open risk captured.").map(
+      (item) => `- ${item}`,
+    ),
+    "",
+    "Open questions:",
+    ...fallbackList(brief.openQuestions, "No open question captured.").map(
+      (item) => `- ${item}`,
+    ),
+  ];
+
+  if (brief.mergeNote) {
+    lines.push("", `Merge note: ${brief.mergeNote}`);
+  }
+
+  return lines.join("\n");
+}
+
+function fallbackList(items: string[], fallback: string): string[] {
+  return items.length > 0 ? items : [fallback];
+}
+
+function synthesizeExecutionBrief(
+  plans: PhaseAgentPlan[],
+  draft: FrictionInboxDraft,
+  topDisagreements: TopDisagreement[],
+): ExecutionBrief {
+  const selectedChoices = topDisagreements
+    .map((item) => {
+      const entry = draft.resolutions.find(
+        (resolution) => resolution.key === item.key,
+      );
+      return normalizeFrictionChoice(entry?.choice);
+    })
+    .filter((choice): choice is FrictionResolutionChoice => Boolean(choice));
+  const overrideAgentId = frictionChoiceAgentId(
+    normalizeFrictionChoice(draft.direction),
+  );
+  const explicitAgentVotes = selectedChoices.filter(
+    (choice) => choice !== "hybrid",
+  );
+  const allChoicesAlignToOneAgent =
+    selectedChoices.length > 0 &&
+    selectedChoices.every((choice) => {
+      const agentId = frictionChoiceAgentId(choice);
+      return (
+        Boolean(agentId) &&
+        agentId === frictionChoiceAgentId(selectedChoices[0])
+      );
+    });
+  const overrideUncontested =
+    Boolean(overrideAgentId) &&
+    selectedChoices.every((choice) => {
+      const agentId = frictionChoiceAgentId(choice);
+      return !agentId || agentId === overrideAgentId;
+    });
+
+  const mode: ExecutionBrief["mode"] =
+    allChoicesAlignToOneAgent || overrideUncontested ? "winner" : "hybrid";
+
+  let baselineAgentId: string | null = null;
+  if (mode === "winner") {
+    baselineAgentId =
+      overrideAgentId ??
+      frictionChoiceAgentId(selectedChoices[0]) ??
+      plans[0]?.id ??
+      null;
+  } else if (overrideAgentId) {
+    baselineAgentId = overrideAgentId;
+  } else {
+    const voteCount = new Map<string, number>();
+    explicitAgentVotes.forEach((choice) => {
+      const agentId = frictionChoiceAgentId(choice);
+      if (!agentId) return;
+      voteCount.set(agentId, (voteCount.get(agentId) ?? 0) + 1);
+    });
+
+    let majorityAgentId: string | null = null;
+    let majorityVotes = 0;
+    let hasTie = false;
+    voteCount.forEach((count, agentId) => {
+      if (count > majorityVotes) {
+        majorityAgentId = agentId;
+        majorityVotes = count;
+        hasTie = false;
+        return;
+      }
+      if (count === majorityVotes) {
+        hasTie = true;
+      }
+    });
+
+    baselineAgentId =
+      majorityAgentId && !hasTie ? majorityAgentId : (plans[0]?.id ?? null);
+  }
+
+  const baselinePlan = findPhase2Plan(plans, baselineAgentId);
+  const borrowedPlan =
+    plans.find((plan) => plan.id !== baselinePlan?.id) ?? null;
+  const constraints = withTrimmed(draft.contextNote) || "none provided";
+  const acceptedTradeoffs = fallbackList(
+    baselinePlan?.plan.tradeoffs.slice(0, 2) ?? [],
+    "No explicit tradeoff captured.",
+  );
+  const nextSteps = fallbackList(
+    collectNextSteps(baselinePlan),
+    "No next step captured.",
+  );
+  const openRisks = fallbackList(
+    baselinePlan?.plan.risks.slice(0, 2) ??
+      baselinePlan?.plan.warnings.slice(0, 2) ??
+      [],
+    "No explicit open risk captured.",
+  );
+  const openQuestions = fallbackList(
+    baselinePlan?.plan.openQuestions.slice(0, 2) ?? [],
+    "No open question captured.",
+  );
+  const baselineLabel = baselinePlan?.label ?? "Unknown baseline";
+  const borrowedLabel = borrowedPlan?.label;
+  const baselineApproach = summarizeBaselineApproach(baselinePlan);
+  const problemFrame =
+    withTrimmed(baselinePlan?.plan.problemRead) ||
+    baselineApproach ||
+    "No problem framing captured.";
+  const mainHypothesis =
+    withTrimmed(baselinePlan?.plan.mainHypothesis) ||
+    baselineApproach ||
+    "No main hypothesis captured.";
+  const mergeNote =
+    mode === "hybrid" && borrowedLabel
+      ? `Keep ${baselineLabel} as the primary direction. Borrow only the strongest perspective from ${borrowedLabel} without reopening the whole problem.`
+      : undefined;
+
+  const finalDecision =
+    mode === "winner"
+      ? `Keep ${baselineLabel} as the primary direction.`
+      : borrowedLabel
+        ? `Use ${baselineLabel} as the base and borrow a focused perspective from ${borrowedLabel}.`
+        : `Use ${baselineLabel} as the base and keep the merge surface minimal.`;
+
+  return {
+    mode,
+    problemFrame,
+    finalDecision,
+    baselineAgentId:
+      baselinePlan?.id ?? baselineAgentId ?? plans[0]?.id ?? "agent_a",
+    baselineLabel,
+    baselineApproach,
+    mainHypothesis,
+    acceptedTradeoffs,
+    constraints,
+    nextSteps,
+    openRisks,
+    openQuestions,
+    mergeNote,
+    borrowedAgentId: borrowedPlan?.id,
+    borrowedLabel,
+  };
+}
+
+function synthesizeExecutionBriefFromLegacyDecision(
+  phase2: Phase2Result,
+  plans: PhaseAgentPlan[],
+  constraints: string,
+): ExecutionBrief {
+  const structured = phase2.humanDecisionStructured;
+  const mode = structured?.mode ?? "winner";
+  const baselineAgentId =
+    structured?.mode === "hybrid"
+      ? structured.hybrid?.baseAgentId
+      : structured?.winnerAgentId;
+  const baselinePlan = findPhase2Plan(plans, baselineAgentId);
+  const borrowedPlan =
+    plans.find((plan) => plan.id !== baselinePlan?.id) ?? null;
+  const baselineLabel = baselinePlan?.label ?? "Unknown baseline";
+  const fallbackDecision =
+    mode === "hybrid" && borrowedPlan
+      ? `Use ${baselineLabel} as the base and borrow a focused perspective from ${borrowedPlan.label}.`
+      : `Keep ${baselineLabel} as the implementation baseline.`;
+  const humanDecision = withTrimmed(phase2.humanDecision);
+
+  return {
+    mode,
+    problemFrame:
+      withTrimmed(baselinePlan?.plan.problemRead) ||
+      summarizeBaselineApproach(baselinePlan),
+    finalDecision: humanDecision
+      ? firstSentence(humanDecision)
+      : fallbackDecision,
+    baselineAgentId: baselinePlan?.id ?? plans[0]?.id ?? "agent_a",
+    baselineLabel,
+    baselineApproach: summarizeBaselineApproach(baselinePlan),
+    mainHypothesis:
+      withTrimmed(baselinePlan?.plan.mainHypothesis) ||
+      summarizeBaselineApproach(baselinePlan),
+    acceptedTradeoffs: fallbackList(
+      baselinePlan?.plan.tradeoffs.slice(0, 2) ?? [],
+      "No explicit tradeoff captured.",
+    ),
+    constraints: withTrimmed(constraints) || "none provided",
+    nextSteps: fallbackList(
+      collectNextSteps(baselinePlan),
+      "No next step captured.",
+    ),
+    openRisks: fallbackList(
+      baselinePlan?.plan.risks.slice(0, 2) ??
+        baselinePlan?.plan.warnings.slice(0, 2) ??
+        [],
+      "No explicit open risk captured.",
+    ),
+    openQuestions: fallbackList(
+      baselinePlan?.plan.openQuestions.slice(0, 2) ?? [],
+      "No open question captured.",
+    ),
+    mergeNote:
+      mode === "hybrid" && borrowedPlan
+        ? `Keep ${baselineLabel} as the primary direction. Borrow only the strongest perspective from ${borrowedPlan.label} without reopening the whole problem.`
+        : undefined,
+    borrowedAgentId: borrowedPlan?.id,
+    borrowedLabel: borrowedPlan?.label,
+  };
 }
 
 /** Truncate to the first sentence (or first 160 chars). */
@@ -551,11 +910,12 @@ function buildPhase1CompletionMessage(
   phase1Agents: PhaseAgentResponse[],
 ): string {
   const frictionCount = result.divergences.length;
+  const topDisagreements = deriveTopDisagreements(result);
   const lines: string[] = [];
 
   lines.push(
     frictionCount === 0
-      ? "Phase 1 complete — agents aligned on the requirement."
+      ? "Phase 1 complete — agents aligned on the problem statement."
       : `Phase 1 complete — ${frictionCount} friction point${frictionCount > 1 ? "s" : ""} detected.`,
   );
 
@@ -601,8 +961,14 @@ function buildPhase1CompletionMessage(
   }
 
   lines.push("");
-  lines.push("Next step: resolve friction points in the inline card below.");
-  lines.push("Once all points are resolved, click Resolve & Run Phase 2.");
+  lines.push(
+    topDisagreements.length > 0
+      ? `Next step: resolve the top ${topDisagreements.length} disagreement${topDisagreements.length > 1 ? "s" : ""} in the inline card below.`
+      : "Next step: review the aligned interpretation, then generate the action brief.",
+  );
+  lines.push(
+    "Add one context note only if something important is missing, then generate the brief.",
+  );
 
   if (phase1Agents.length > 2) {
     lines.push(
@@ -616,85 +982,49 @@ function buildPhase1CompletionMessage(
   return lines.join("\n");
 }
 
-/** Build the assistant message shown after Phase 2 completes. */
-function buildPhase2CompletionMessage(
-  result: Phase2Result,
-  phase2Agents: PhaseAgentPlan[],
-): string {
-  const frictionCount = result.divergences.length;
-  const lines: string[] = [];
-  const agentCount = phase2Agents.length;
+function buildExecutionBriefReadyMessage(brief: ExecutionBrief): string {
+  const lines = [
+    "Action brief ready.",
+    "",
+    `Problem frame: ${brief.problemFrame}`,
+    `Decision: ${brief.finalDecision}`,
+    `Main hypothesis: ${brief.mainHypothesis}`,
+    `Baseline: ${brief.baselineLabel}`,
+    `Constraints: ${brief.constraints}`,
+  ];
 
-  lines.push(
-    frictionCount === 0
-      ? `Phase 2 complete — ${agentCount} agent${agentCount > 1 ? "s" : ""} converged on a plan.`
-      : `Phase 2 complete — ${frictionCount} plan divergence${frictionCount > 1 ? "s" : ""} to arbitrate.`,
-  );
-
-  // Core tension from architecture or stack divergence
-  const coreDiv =
-    result.divergences.find((d) => d.field === "architecture") ??
-    result.divergences.find((d) => d.field === "stack") ??
-    result.divergences[0];
-
-  if (coreDiv) {
-    lines.push("");
-    lines.push(`Core debate (${coreDiv.field}):`);
-    if (coreDiv.a)
-      lines.push(
-        `• ${phase2Agents[0]?.label ?? "Agent A"} → ${firstSentence(coreDiv.a)}`,
-      );
-    if (coreDiv.b)
-      lines.push(
-        `• ${phase2Agents[1]?.label ?? "Agent B"} → ${firstSentence(coreDiv.b)}`,
-      );
-    if (coreDiv.consensusText)
-      lines.push(`• Consensus → ${firstSentence(coreDiv.consensusText)}`);
-    if (coreDiv.consensusItems?.length) {
-      lines.push(
-        `• Consensus items → ${coreDiv.consensusItems.slice(0, 5).join(", ")}`,
-      );
-    }
-    if (coreDiv.outlierAgentIds?.length) {
-      const labelMap = new Map(
-        phase2Agents.map((agent) => [agent.id, agent.label]),
-      );
-      lines.push(
-        `• Outliers → ${coreDiv.outlierAgentIds.map((id) => labelMap.get(id) ?? id).join(", ")}`,
-      );
-    }
-  }
-
-  // Decision guide
-  lines.push("");
-  lines.push("Write your arbitration decision:");
-  lines.push(
-    `① Choose a baseline plan — ${phase2Agents.map((item) => item.label).join(" / ")} or hybrid.`,
-  );
-  lines.push(
-    "② Accept tradeoffs — name at least one tradeoff you are consciously accepting.",
-  );
-
-  const highSeverity = result.divergences.filter((d) => d.severity === "high");
-  if (highSeverity.length > 0) {
-    lines.push(
-      `③ High-severity divergence${highSeverity.length > 1 ? "s" : ""} to address: ${highSeverity.map((d) => d.field).join(", ")}.`,
-    );
+  if (brief.mergeNote) {
+    lines.push(`Merge note: ${brief.mergeNote}`);
   }
 
   return lines.join("\n");
 }
 
 function phaseFromStep(step: WorkflowStep): AppPhase {
-  if (step === "requirement" || step === "clarifications") return 1;
-  if (step === "decision") return 2;
+  if (step === "requirement" || step === "friction") return 1;
+  if (step === "brief") return 2;
   return 3;
 }
 
 function stepFromPhase(phase: AppPhase): WorkflowStep {
   if (phase === 1) return "requirement";
-  if (phase === 2) return "decision";
-  return "phase3_config";
+  return "brief";
+}
+
+function normalizeWorkflowStep(value: string | undefined): WorkflowStep {
+  if (value === "requirement" || value === "friction" || value === "brief") {
+    return value;
+  }
+  if (value === "phase3_run") return "brief";
+  if (value === "clarifications") return "friction";
+  if (
+    value === "decision" ||
+    value === "phase3_config" ||
+    value === "completed"
+  ) {
+    return "brief";
+  }
+  return "requirement";
 }
 
 function placeholderPhase3(): Phase3Result {
@@ -775,7 +1105,7 @@ function makeInitialConversation(): ConversationItem[] {
     {
       id: crypto.randomUUID(),
       type: "assistant",
-      text: "Describe your requirement. I will run phase 1 automatically after you send.",
+      text: "Describe the problem statement. I will run phase 1 automatically after you send.",
       meta: metaFor("requirement"),
     },
   ];
@@ -812,6 +1142,7 @@ function isArtifactConversationItem(item: ConversationItem): boolean {
     item.type === "cli_timeline" ||
     item.type === "friction_phase1" ||
     item.type === "friction_inbox" ||
+    item.type === "execution_brief" ||
     item.type === "decision_phase2" ||
     item.type === "validate_phase3" ||
     item.type === "workflow_done"
@@ -892,13 +1223,17 @@ function conversationItemToAssistantThreadMessage(
   return null;
 }
 
-function isCliCommandLogEventPayload(value: unknown): value is CliCommandLogEvent {
+function isCliCommandLogEventPayload(
+  value: unknown,
+): value is CliCommandLogEvent {
   if (!value || typeof value !== "object") return false;
   const event = value as Partial<CliCommandLogEvent>;
-  if (typeof event.requestId !== "string" || !event.requestId.trim()) return false;
+  if (typeof event.requestId !== "string" || !event.requestId.trim())
+    return false;
   if (event.phase !== 1 && event.phase !== 2 && event.phase !== 3) return false;
   if (typeof event.kind !== "string" || !event.kind.trim()) return false;
-  if (typeof event.timestamp !== "string" || !event.timestamp.trim()) return false;
+  if (typeof event.timestamp !== "string" || !event.timestamp.trim())
+    return false;
   return true;
 }
 
@@ -907,7 +1242,8 @@ function createCliTimelineRun(
   phase: 1 | 2 | 3,
   timestamp?: string,
 ): CliTimelineRun {
-  const now = timestamp && timestamp.trim() ? timestamp : new Date().toISOString();
+  const now =
+    timestamp && timestamp.trim() ? timestamp : new Date().toISOString();
   return {
     requestId,
     phase,
@@ -978,7 +1314,8 @@ function extractReadableCliLineFromJson(line: string): string | null {
 
   if (eventType === "message") {
     const role = typeof record.role === "string" ? record.role : "";
-    const content = typeof record.content === "string" ? record.content.trim() : "";
+    const content =
+      typeof record.content === "string" ? record.content.trim() : "";
     if (role === "assistant" && content) return content;
     return null;
   }
@@ -1008,7 +1345,8 @@ function extractReadableCliLineFromJson(line: string): string | null {
   }
 
   if (eventType === "result") {
-    const status = typeof record.status === "string" ? record.status : "unknown";
+    const status =
+      typeof record.status === "string" ? record.status : "unknown";
     const stats =
       record.stats && typeof record.stats === "object"
         ? (record.stats as Record<string, unknown>)
@@ -1054,7 +1392,10 @@ function applyCliCommandLogEvent(
   const runIndex = next.findIndex((run) => run.requestId === event.requestId);
   const hasRun = runIndex >= 0;
   const run = hasRun
-    ? { ...next[runIndex], commands: next[runIndex].commands.map((command) => ({ ...command })) }
+    ? {
+        ...next[runIndex],
+        commands: next[runIndex].commands.map((command) => ({ ...command })),
+      }
     : createCliTimelineRun(event.requestId, event.phase, event.timestamp);
   run.updatedAt = event.timestamp;
   if (!hasRun) {
@@ -1078,7 +1419,8 @@ function applyCliCommandLogEvent(
     run.commands.push({
       commandId,
       agentId: event.agentId,
-      agentLabel: withTrimmed(event.agentLabel ?? "") || `Command ${fallbackIndex}`,
+      agentLabel:
+        withTrimmed(event.agentLabel ?? "") || `Command ${fallbackIndex}`,
       cli: event.agentCli,
       command: event.command,
       commandSource: event.commandSource,
@@ -1248,7 +1590,7 @@ function markCliSetupCompleted(value: boolean): void {
   }
 }
 
-// ── Draft auto-save ───────────────────────────────────────────────────────────
+// Legacy draft import compatibility only.
 interface WorkflowDraft {
   requirement: string;
   clarifications: string;
@@ -1262,27 +1604,11 @@ interface WorkflowDraft {
 
 function readDraft(): WorkflowDraft | null {
   try {
-    const raw = localStorage.getItem(DRAFT_KEY);
+    const raw = localStorage.getItem(LEGACY_DRAFT_KEY);
     if (!raw) return null;
     return JSON.parse(raw) as WorkflowDraft;
   } catch {
     return null;
-  }
-}
-
-function writeDraft(draft: WorkflowDraft): void {
-  try {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-  } catch {
-    // localStorage unavailable or full – silently ignore
-  }
-}
-
-function clearDraft(): void {
-  try {
-    localStorage.removeItem(DRAFT_KEY);
-  } catch {
-    // ignore
   }
 }
 
@@ -1306,6 +1632,10 @@ export default function App() {
     makeInitialConversation(),
   );
   const [composerText, setComposerText] = useState("");
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [currentSessionCreatedAt, setCurrentSessionCreatedAt] = useState<
+    string | null
+  >(null);
 
   const [requirement, setRequirement] = useState("");
   const [clarifications, setClarifications] = useState("");
@@ -1319,6 +1649,7 @@ export default function App() {
 
   const [repoPath, setRepoPath] = useState("");
   const [baseBranch, setBaseBranch] = useState("main");
+  const [proofModeOpen, setProofModeOpen] = useState(false);
   const [judgeProvider, setJudgeProvider] = useState<JudgeProvider>(() => {
     const s = readPersistedSettings();
     return ensureJudgeProvider(s.judgeProvider);
@@ -1426,6 +1757,25 @@ export default function App() {
     null,
   );
 
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [ollamaModelsLoading, setOllamaModelsLoading] = useState(false);
+
+  useEffect(() => {
+    async function fetchOllama() {
+      setOllamaModelsLoading(true);
+      try {
+        const { ollamaListModels } = await import("./lib/agents/ollama-direct");
+        const models = await ollamaListModels(ollamaHost);
+        setOllamaModels(models);
+      } catch (e) {
+        console.warn("Failed to fetch Ollama models:", e);
+      } finally {
+        setOllamaModelsLoading(false);
+      }
+    }
+    void fetchOllama();
+  }, [ollamaHost]);
+
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmIntent, setConfirmIntent] = useState<ConfirmIntent | null>(
     null,
@@ -1454,6 +1804,8 @@ export default function App() {
   const submitWorkflowInputRef = useRef<
     (input: string) => Promise<void> | void
   >(() => {});
+  const autosaveTimerRef = useRef<number | null>(null);
+  const isHydratingSessionRef = useRef(false);
 
   function focusComposerInput() {
     window.setTimeout(() => {
@@ -1515,24 +1867,44 @@ export default function App() {
 
   const isBusy =
     phase1Loading || phase2Loading || phase3Loading || datasetLoading;
+  const activeProblemStatement = useMemo(() => {
+    const submitted = withTrimmed(requirement);
+    if (submitted) return submitted;
+    return withTrimmed(composerText);
+  }, [composerText, requirement]);
+  const hasMeaningfulSessionContent = useMemo(() => {
+    if (
+      nonWhitespaceLength(activeProblemStatement) >= AUTOSAVE_MIN_NON_WHITESPACE
+    ) {
+      return true;
+    }
+    if (phase1Result || phase2Result || phase3Result) {
+      return true;
+    }
+    return conversation.some((item) => item.type === "user");
+  }, [
+    activeProblemStatement,
+    conversation,
+    phase1Result,
+    phase2Result,
+    phase3Result,
+  ]);
   const hasUnsaved =
     unsavedState.phase1Dirty ||
     unsavedState.phase2Dirty ||
     unsavedState.phase3Dirty;
-  const canPersistSession = Boolean(phase1Result && phase2Result);
+  const canPersistSession = hasMeaningfulSessionContent;
   const phase12AgentsSafe = useMemo(
     () => ensureAtLeastTwoPhaseAgents(phase12Agents),
     [phase12Agents],
   );
   const promptModelAgentIds = useMemo(() => {
-    if (
-      workflowStep === "phase3_config" ||
-      workflowStep === "phase3_run" ||
-      workflowStep === "completed"
-    ) {
+    if (workflowStep === "phase3_run") {
       return ["phase3_agent_a", "phase3_agent_b"];
     }
-    return phase12AgentsSafe.slice(0, MAX_PHASE_AGENTS).map((agent) => agent.id);
+    return phase12AgentsSafe
+      .slice(0, MAX_PHASE_AGENTS)
+      .map((agent) => agent.id);
   }, [phase12AgentsSafe, workflowStep]);
   const runtimeSettings = useMemo<RuntimeSettings>(
     () => ({
@@ -1654,8 +2026,10 @@ export default function App() {
   );
   const cliCommandsSignature = useMemo(
     () =>
-      AGENT_CLI_OPTIONS.map((alias) => `${alias}:${cliCommands[alias] ?? ""}`).join("|"),
-    [cliCommands]
+      AGENT_CLI_OPTIONS.map(
+        (alias) => `${alias}:${cliCommands[alias] ?? ""}`,
+      ).join("|"),
+    [cliCommands],
   );
   const inventoryRefreshSignature = useMemo(() => {
     const aliasesKey = [...visibleCliAliases].sort().join(",");
@@ -1672,11 +2046,9 @@ export default function App() {
         );
         if (!run) return;
         const commandStamp = run.commands
-          .map(
-            (command) => {
-              return `${command.commandId}:${command.status}:${command.exitCode ?? ""}:${command.updatedAt}:${command.rawOutput.length}:${command.readableOutput.length}`;
-            },
-          )
+          .map((command) => {
+            return `${command.commandId}:${command.status}:${command.exitCode ?? ""}:${command.updatedAt}:${command.rawOutput.length}:${command.readableOutput.length}`;
+          })
           .join("|");
         tokens.set(
           item.id,
@@ -1688,42 +2060,36 @@ export default function App() {
       if (item.type === "friction_phase1" || item.type === "friction_inbox") {
         if (!frictionInboxDraft) return;
         const resolvedCount = frictionInboxDraft.resolutions.filter(
-          (resolution) =>
-            Boolean(resolution.choice) &&
-            normalizeFrictionRationale(resolution.rationale).length >=
-              MIN_FRICTION_RATIONALE_LENGTH,
+          (resolution) => Boolean(resolution.choice),
         ).length;
         tokens.set(
           item.id,
-          `${frictionInboxDraft.status}:${frictionInboxDraft.direction ?? ""}:${phase2Loading ? "1" : "0"}:${resolvedCount}`,
+          `${frictionInboxDraft.status}:${frictionInboxDraft.direction ?? ""}:${phase2Loading ? "1" : "0"}:${resolvedCount}:${withTrimmed(frictionInboxDraft.contextNote).length}`,
         );
         return;
       }
 
-      if (item.type === "decision_phase2") {
-        const structured = phase2Result?.humanDecisionStructured
-          ? JSON.stringify(phase2Result.humanDecisionStructured)
+      if (item.type === "execution_brief") {
+        const brief = phase2Result?.executionBrief
+          ? JSON.stringify(phase2Result.executionBrief)
           : "";
         tokens.set(
           item.id,
-          `${workflowStep}:${phase2Loading ? "1" : "0"}:${withTrimmed(decision)}:${structured}`,
+          [
+            workflowStep,
+            phase2Loading ? "1" : "0",
+            phase3Loading ? "1" : "0",
+            saveLocalLoading ? "1" : "0",
+            datasetLoading ? "1" : "0",
+            withTrimmed(repoPath),
+            withTrimmed(baseBranch),
+            consentedToDataset ? "1" : "0",
+            withTrimmed(phase3FormError ?? ""),
+            withTrimmed(saveStatus ?? ""),
+            brief,
+          ].join(":"),
         );
         return;
-      }
-
-      if (item.type === "validate_phase3") {
-        tokens.set(
-          item.id,
-          `${workflowStep}:${phase3Loading ? "1" : "0"}:${withTrimmed(repoPath)}:${withTrimmed(baseBranch)}:${consentedToDataset ? "1" : "0"}:${withTrimmed(phase3FormError ?? "")}`,
-        );
-        return;
-      }
-
-      if (item.type === "workflow_done") {
-        tokens.set(
-          item.id,
-          `${workflowStep}:${saveLocalLoading ? "1" : "0"}:${datasetLoading ? "1" : "0"}:${withTrimmed(saveStatus ?? "")}`,
-        );
       }
     });
     return tokens;
@@ -1753,7 +2119,11 @@ export default function App() {
       string,
       { id: string; role: "assistant" | "user"; content: string }
     >();
-    const nextMessages: { id: string; role: "assistant" | "user"; content: string }[] = [];
+    const nextMessages: {
+      id: string;
+      role: "assistant" | "user";
+      content: string;
+    }[] = [];
 
     conversation.forEach((item) => {
       const mapped = conversationItemToAssistantThreadMessage(
@@ -1784,7 +2154,7 @@ export default function App() {
     return recentSessions.map((session) => ({
       status: "regular" as const,
       id: session.id,
-      title: withTrimmed(session.requirementPreview) || session.id.slice(0, 8),
+      title: withTrimmed(session.title) || session.id.slice(0, 8),
     }));
   }, [recentSessions]);
   const conversationArtifactById = useMemo(() => {
@@ -1817,14 +2187,20 @@ export default function App() {
             </p>
           );
         }
-        const cardAgents = phase1AgentsFromResult(sourcePhase1, phase12AgentsSafe);
+        const cardAgents = phase1AgentsFromResult(
+          sourcePhase1,
+          phase12AgentsSafe,
+        );
+        const topDisagreements = deriveTopDisagreements(sourcePhase1);
         return (
           <FrictionPhase1Inline
             phase1={sourcePhase1}
+            topDisagreements={topDisagreements}
             agents={cardAgents}
             draft={frictionInboxDraft}
             submitting={phase2Loading}
             onDirectionChange={updateFrictionDirection}
+            onContextNoteChange={updateFrictionContextNote}
             onResolutionChange={updateFrictionResolution}
             onSubmit={(draftOverride) => {
               void submitFrictionInbox(draftOverride);
@@ -1834,15 +2210,7 @@ export default function App() {
       }
 
       if (item.type === "friction_inbox") {
-        const sourcePlan = conversationArtifactById.get(
-          item.payload.sourcePlanItemId,
-        );
-        const sourcePhase1 =
-          sourcePlan?.type === "plan" &&
-          sourcePlan.payload.phase === 1 &&
-          sourcePlan.payload.phase1
-            ? sourcePlan.payload.phase1
-            : phase1Result;
+        const sourcePhase1 = phase1Result;
         if (!sourcePhase1 || !frictionInboxDraft) {
           return (
             <p className="text-xs text-friction-muted">
@@ -1850,14 +2218,20 @@ export default function App() {
             </p>
           );
         }
-        const cardAgents = phase1AgentsFromResult(sourcePhase1, phase12AgentsSafe);
+        const cardAgents = phase1AgentsFromResult(
+          sourcePhase1,
+          phase12AgentsSafe,
+        );
+        const topDisagreements = deriveTopDisagreements(sourcePhase1);
         return (
-          <FrictionInboxCard
+          <FrictionPhase1Inline
             phase1={sourcePhase1}
+            topDisagreements={topDisagreements}
             agents={cardAgents}
             draft={frictionInboxDraft}
             submitting={phase2Loading}
             onDirectionChange={updateFrictionDirection}
+            onContextNoteChange={updateFrictionContextNote}
             onResolutionChange={updateFrictionResolution}
             onSubmit={(draftOverride) => {
               void submitFrictionInbox(draftOverride);
@@ -1866,34 +2240,42 @@ export default function App() {
         );
       }
 
-      if (item.type === "decision_phase2") {
-        const p2Agents = phase2AgentsFromResult(item.payload.phase2, phase12AgentsSafe);
-        if (p2Agents.length < 2) {
+      if (item.type === "execution_brief") {
+        const brief =
+          phase2Result?.actionBrief ??
+          phase2Result?.executionBrief ??
+          item.payload.brief;
+        if (!brief) {
           return (
             <p className="text-xs text-friction-muted">
-              Preparing arbitration…
+              Preparing action brief…
             </p>
           );
         }
         return (
-          <DecisionPhase2Inline
-            plans={p2Agents}
-            disabled={isBusy}
-            onApplyDecision={(note, structured) => {
-              handleDecisionStep(note, structured);
-            }}
-          />
-        );
-      }
-
-      if (item.type === "validate_phase3") {
-        return (
-          <Phase3ValidateInline
+          <ExecutionBriefCard
+            brief={brief}
+            canPersistSession={canPersistSession}
+            saveLocalLoading={saveLocalLoading}
+            datasetLoading={datasetLoading}
             repoPath={repoPath}
             baseBranch={baseBranch}
+            proofModeOpen={proofModeOpen}
             consentedToDataset={consentedToDataset}
-            running={phase3Loading}
-            error={phase3FormError}
+            phase3Loading={phase3Loading}
+            phase3FormError={phase3FormError}
+            onSave={() => {
+              void handleSaveSessionLocal();
+            }}
+            onExportSession={handleExportSession}
+            onExportDataset={() => {
+              void handleExportDataset();
+            }}
+            onNewThread={handleRestart}
+            onProofModeOpenChange={(value) => {
+              setProofModeOpen(value);
+              setUnsavedState((prev) => ({ ...prev, phase3Dirty: true }));
+            }}
             onRepoPathChange={(value) => {
               setRepoPath(value);
               setUnsavedState((prev) => ({ ...prev, phase3Dirty: true }));
@@ -1906,27 +2288,9 @@ export default function App() {
               setConsentedToDataset(value);
               setUnsavedState((prev) => ({ ...prev, phase3Dirty: true }));
             }}
-            onRun={() => {
+            onRunPhase3={() => {
               void handlePhase3Step();
             }}
-          />
-        );
-      }
-
-      if (item.type === "workflow_done") {
-        return (
-          <WorkflowDoneInline
-            canPersistSession={canPersistSession}
-            saveLocalLoading={saveLocalLoading}
-            datasetLoading={datasetLoading}
-            onSave={() => {
-              void handleSaveSessionLocal();
-            }}
-            onExportSession={handleExportSession}
-            onExportDataset={() => {
-              void handleExportDataset();
-            }}
-            onNewThread={handleRestart}
           />
         );
       }
@@ -1993,12 +2357,12 @@ export default function App() {
           const p2Agents = phase2AgentsFromResult(p2, phase12AgentsSafe);
           return (
             <PlanCard
-              title="Phase 2 — Multi-agent plans"
-              summary={`${p2.divergences.length} plan divergence${p2.divergences.length !== 1 ? "s" : ""} · ${p2Agents.length} plan variants`}
+              title="Phase 2 — Multi-agent approaches"
+              summary={`${p2.divergences.length} approach divergence${p2.divergences.length !== 1 ? "s" : ""} · ${p2Agents.length} variants`}
               defaultOpen={false}
             >
               <DivergenceBlock
-                title="Plan divergences"
+                title="Approach divergences"
                 divergences={p2.divergences}
                 leftLabel={p2Agents[0]?.label ?? "Agent A"}
                 rightLabel={p2Agents[1]?.label ?? "Agent B"}
@@ -2022,7 +2386,7 @@ export default function App() {
       if (item.type === "code") {
         return (
           <CodeCard
-            title="Phase 3 output"
+            title="Proof mode output"
             summary={`Repo: ${item.payload.repoPath} · Branch: ${item.payload.baseBranch} · Confidence ${formatPercent(item.payload.phase3.confidenceScore)}`}
           >
             <DiffViewer phase3={item.payload.phase3} />
@@ -2034,17 +2398,18 @@ export default function App() {
     },
     [
       cliTimelineRuns,
-      conversationArtifactById,
       frictionInboxDraft,
       handleSuggestionPick,
       phase1Result,
       phase12AgentsSafe,
       phase2Loading,
+      phase2Result,
       phase3FormError,
       phase3Loading,
       repoPath,
       baseBranch,
       consentedToDataset,
+      proofModeOpen,
       canPersistSession,
       saveLocalLoading,
       datasetLoading,
@@ -2052,8 +2417,8 @@ export default function App() {
       handleExportSession,
       handleRestart,
       handleSaveSessionLocal,
-      handleDecisionStep,
       submitFrictionInbox,
+      updateFrictionContextNote,
       updateFrictionDirection,
       updateFrictionResolution,
       isBusy,
@@ -2071,40 +2436,39 @@ export default function App() {
     renderConversationArtifactRef.current = renderConversationArtifact;
   }, [renderConversationArtifact]);
 
-  const AssistantThreadText = useCallback(
-    (props: any) => {
-      const raw =
-        (typeof props?.text === "string" && props.text) ||
-        (typeof props?.children === "string" && props.children) ||
-        "";
-      const artifactId = parseThreadArtifactMarker(raw);
-      if (artifactId) {
-        const item = conversationArtifactByIdRef.current.get(artifactId);
-        if (!item) {
-          return null;
-        }
-        const rendered = renderConversationArtifactRef.current(item);
-        if (rendered) {
-          return (
-            <div className="thread-artifact-root" data-artifact-type={item.type}>
-              {rendered}
-            </div>
-          );
-        }
+  const AssistantThreadText = useCallback((props: any) => {
+    const raw =
+      (typeof props?.text === "string" && props.text) ||
+      (typeof props?.children === "string" && props.children) ||
+      "";
+    const artifactId = parseThreadArtifactMarker(raw);
+    if (artifactId) {
+      const item = conversationArtifactByIdRef.current.get(artifactId);
+      if (!item) {
+        return null;
+      }
+      const rendered = renderConversationArtifactRef.current(item);
+      if (rendered) {
         return (
-          <div className="thread-artifact-root">
-            <p className="text-xs text-friction-muted">Preparing artifact output…</p>
+          <div className="thread-artifact-root" data-artifact-type={item.type}>
+            {rendered}
           </div>
         );
       }
       return (
-        <div className="thread-assistant-text">
-          <MarkdownText {...props} />
+        <div className="thread-artifact-root">
+          <p className="text-xs text-friction-muted">
+            Preparing artifact output…
+          </p>
         </div>
       );
-    },
-    [],
-  );
+    }
+    return (
+      <div className="thread-assistant-text">
+        <MarkdownText {...props} />
+      </div>
+    );
+  }, []);
   useEffect(() => {
     handleLoadSessionRef.current = handleLoadSession;
     handleRestartRef.current = handleRestart;
@@ -2168,7 +2532,7 @@ export default function App() {
   const threadWelcome = useMemo(
     () => ({
       message:
-        "Describe your requirement. I will run phase 1 automatically after you send.",
+        "Describe the problem statement. I will run phase 1 automatically after you send.",
     }),
     [],
   );
@@ -2311,7 +2675,10 @@ export default function App() {
           ...run,
           status,
           updatedAt: new Date().toISOString(),
-          error: status === "failed" ? withTrimmed(error ?? "") || run.error : undefined,
+          error:
+            status === "failed"
+              ? withTrimmed(error ?? "") || run.error
+              : undefined,
           commands: run.commands.map((command) => ({
             ...command,
             isStreaming: false,
@@ -2356,7 +2723,9 @@ export default function App() {
           ...item,
           choice: normalizedChoice ?? item.choice,
           rationale:
-            typeof patch.rationale === "string" ? patch.rationale : item.rationale,
+            typeof patch.rationale === "string"
+              ? patch.rationale
+              : item.rationale,
         };
       });
       const nextDraft: FrictionInboxDraft = {
@@ -2364,23 +2733,12 @@ export default function App() {
         resolutions: nextResolutions,
       };
       if (phase1Result) {
-        nextDraft.status = computeFrictionGateState(phase1Result, nextDraft).ready
+        nextDraft.status = computeFrictionGateState(phase1Result, nextDraft)
+          .ready
           ? "ready"
           : "draft";
       } else {
         nextDraft.status = "draft";
-      }
-      if (phase1Result && !phase2Result) {
-        writeDraft({
-          requirement,
-          clarifications,
-          decision,
-          phase1Result,
-          phase2Result: null,
-          frictionInboxDraft: nextDraft,
-          workflowStep: "clarifications",
-          savedAt: new Date().toISOString(),
-        });
       }
       return nextDraft;
     });
@@ -2395,18 +2753,18 @@ export default function App() {
         ...previous,
         direction: normalizedDirection,
       };
-      if (phase1Result && !phase2Result) {
-        writeDraft({
-          requirement,
-          clarifications,
-          decision,
-          phase1Result,
-          phase2Result: null,
-          frictionInboxDraft: nextDraft,
-          workflowStep: "clarifications",
-          savedAt: new Date().toISOString(),
-        });
-      }
+      return nextDraft;
+    });
+  }
+
+  function updateFrictionContextNote(value: string) {
+    setUnsavedState((previous) => ({ ...previous, phase2Dirty: true }));
+    setFrictionInboxDraft((previous) => {
+      if (!previous) return previous;
+      const nextDraft: FrictionInboxDraft = {
+        ...previous,
+        contextNote: value,
+      };
       return nextDraft;
     });
   }
@@ -2414,7 +2772,7 @@ export default function App() {
   async function submitFrictionInbox(draftOverride?: FrictionInboxDraft) {
     const effectiveDraft = draftOverride ?? frictionInboxDraft;
     if (!phase1Result || !requirement || !effectiveDraft) {
-      appendError("Run requirement analysis first.", "clarifications");
+      appendError("Analyze the problem statement first.", "friction");
       transitionWorkflow("requirement");
       return;
     }
@@ -2422,8 +2780,8 @@ export default function App() {
     const gate = computeFrictionGateState(phase1Result, effectiveDraft);
     if (!gate.ready) {
       appendError(
-        "Resolve every friction point with a choice and rationale before running Phase 2.",
-        "clarifications",
+        "Pick a side or hybrid for each of the top disagreements before generating the brief.",
+        "friction",
       );
       return;
     }
@@ -2431,30 +2789,27 @@ export default function App() {
     if (draftOverride) {
       setFrictionInboxDraft(draftOverride);
     }
-    const phase1Agents = phase1AgentsFromResult(phase1Result, phase12AgentsSafe);
+    const phase1Agents = phase1AgentsFromResult(
+      phase1Result,
+      phase12AgentsSafe,
+    );
     const clarificationsText = buildClarificationsFromFrictionInbox(
       phase1Result,
       effectiveDraft,
       phase1Agents,
     );
-    await handleClarificationsStep(clarificationsText);
+    await handleClarificationsStep(clarificationsText, effectiveDraft);
   }
 
   function validateRequirement(value: string): string | null {
     if (withTrimmed(value).length < 8)
-      return "Requirement must be at least 8 characters.";
+      return "Problem statement must be at least 8 characters.";
     return null;
   }
 
   function validateClarifications(value: string): string | null {
-    if (withTrimmed(value).length < 10)
-      return "Clarifications must be at least 10 characters.";
-    return null;
-  }
-
-  function validateDecision(value: string): string | null {
-    if (withTrimmed(value).length < 12)
-      return "Decision note must be at least 12 characters.";
+    if (withTrimmed(value).length < 3)
+      return "Clarifications payload is empty.";
     return null;
   }
 
@@ -2633,7 +2988,10 @@ export default function App() {
     }
 
     setPhase12Agents((previous) => {
-      const safe = ensureAtLeastTwoPhaseAgents(previous).slice(0, MAX_PHASE_AGENTS);
+      const safe = ensureAtLeastTwoPhaseAgents(previous).slice(
+        0,
+        MAX_PHASE_AGENTS,
+      );
       return safe.map((agent) =>
         agent.id === agentId ? { ...agent, cli } : agent,
       );
@@ -2674,7 +3032,9 @@ export default function App() {
     if (agentId === "agent_a" || agentId === "agent_b") return;
     if (phase12AgentsSafe.length <= 2) return;
 
-    const keptAgents = phase12AgentsSafe.filter((agent) => agent.id !== agentId);
+    const keptAgents = phase12AgentsSafe.filter(
+      (agent) => agent.id !== agentId,
+    );
     const nextAgents = normalizePhase12AgentsForLength(
       keptAgents,
       keptAgents.length,
@@ -2726,7 +3086,7 @@ export default function App() {
           listCliModels(alias, runtimeSettings, {
             forceRefresh: options?.forceRefresh ?? false,
           }),
-        )
+        ),
       );
       const inventories: CliAliasModelInventory[] = [];
       let opencodeFailure: string | null = null;
@@ -2735,7 +3095,10 @@ export default function App() {
         const alias = targets[index];
         const durationMs = Math.max(
           1,
-          Math.round(performance.now() - (startedAtByAlias.get(alias) ?? performance.now())),
+          Math.round(
+            performance.now() -
+              (startedAtByAlias.get(alias) ?? performance.now()),
+          ),
         );
         const fetchedAt = new Date().toISOString();
         if (result.status === "fulfilled") {
@@ -2748,10 +3111,14 @@ export default function App() {
         }
         const previousInventory = cliModelInventory[alias];
         const errorReason = extractErrorMessage(result.reason);
-        const canReusePreviousModels = Boolean(previousInventory?.models?.length);
+        const canReusePreviousModels = Boolean(
+          previousInventory?.models?.length,
+        );
         inventories.push({
           alias,
-          models: canReusePreviousModels ? previousInventory?.models ?? [] : [],
+          models: canReusePreviousModels
+            ? (previousInventory?.models ?? [])
+            : [],
           source: canReusePreviousModels ? "cache" : "fallback",
           reason: canReusePreviousModels
             ? `${errorReason} | served previous UI cache`
@@ -2783,11 +3150,15 @@ export default function App() {
           setOpencodeModelsError(opencodeFailure);
         } else {
           const opencodeInventory = inventories.find(
-            (inventory) => inventory.alias === "opencode"
+            (inventory) => inventory.alias === "opencode",
           );
           if (opencodeInventory) {
             const deduped = Array.from(
-              new Set(opencodeInventory.models.map((model) => model.trim()).filter(Boolean))
+              new Set(
+                opencodeInventory.models
+                  .map((model) => model.trim())
+                  .filter(Boolean),
+              ),
             );
             setOpencodeModels(deduped);
             setOpencodeModelsError(opencodeInventory.reason ?? null);
@@ -3017,16 +3388,13 @@ export default function App() {
     if (issue) {
       appendError(issue, "requirement");
       appendTask(
-        "Send a longer requirement",
+        "Send a longer problem statement",
         "requirement",
         undefined,
         SUGGESTION_SETS.requirement,
       );
       return;
     }
-
-    // Starting a fresh workflow – discard any previous draft
-    clearDraft();
 
     setError(null);
     setSaveStatus(null);
@@ -3038,6 +3406,7 @@ export default function App() {
     setPhase1Result(null);
     setPhase2Result(null);
     setPhase3Result(null);
+    setProofModeOpen(false);
     setUnsavedState({
       phase1Dirty: true,
       phase2Dirty: false,
@@ -3106,24 +3475,12 @@ export default function App() {
       setUnsavedState((prev) => ({ ...prev, phase1Dirty: false }));
       finalizeCliTimelineRun(phase1StreamRequestId, "finished");
 
-      // Auto-save draft after phase 1
-      writeDraft({
-        requirement: input,
-        clarifications: "",
-        decision: "",
-        phase1Result: result,
-        phase2Result: null,
-        frictionInboxDraft: nextFrictionDraft,
-        workflowStep: "clarifications",
-        savedAt: new Date().toISOString(),
-      });
-
-      transitionWorkflow("clarifications");
+      transitionWorkflow("friction");
 
       appendText(
         "assistant",
         buildPhase1CompletionMessage(result, resultAgents),
-        "clarifications",
+        "friction",
       );
       appendConversation({
         id: crypto.randomUUID(),
@@ -3131,9 +3488,12 @@ export default function App() {
         payload: {
           phase: 1,
           phase1: result,
-          meta: metaFor("clarifications"),
+          meta: metaFor("friction"),
         },
       });
+      window.setTimeout(() => {
+        void persistSessionSnapshot({ silent: true, status: "friction" });
+      }, 0);
     } catch (caught) {
       const message = extractErrorMessage(caught);
       finalizeCliTimelineRun(phase1StreamRequestId, "failed", message);
@@ -3149,23 +3509,35 @@ export default function App() {
     }
   }
 
-  async function handleClarificationsStep(input: string) {
+  async function handleClarificationsStep(
+    input: string,
+    draftOverride?: FrictionInboxDraft,
+  ) {
     if (!phase1Result || !requirement) {
-      appendError("Run requirement analysis first.", "clarifications");
+      appendError("Analyze the problem statement first.", "friction");
       transitionWorkflow("requirement");
       return;
     }
 
     const issue = validateClarifications(input);
     if (issue) {
-      appendError(issue, "clarifications");
+      appendError(issue, "friction");
       return;
     }
+
+    const effectiveDraft = reconcileFrictionInboxDraft(
+      phase1Result,
+      draftOverride ?? frictionInboxDraft,
+    );
+    const topDisagreements = deriveTopDisagreements(phase1Result);
 
     setError(null);
     setSaveStatus(null);
     setClarifications(input);
     setUnsavedState((prev) => ({ ...prev, phase2Dirty: true }));
+    if (draftOverride) {
+      setFrictionInboxDraft(effectiveDraft);
+    }
 
     let runtimeDiagnostic: Phase12RuntimeDiagnostic | null = null;
     try {
@@ -3173,7 +3545,7 @@ export default function App() {
     } catch (caught) {
       const message = extractErrorMessage(caught);
       setError(message);
-      appendError(message, "clarifications");
+      appendError(message, "friction");
       return;
     }
 
@@ -3181,7 +3553,7 @@ export default function App() {
     if (selectionMismatches.length > 0) {
       const message = formatPhase12SelectionMismatchError(selectionMismatches);
       setError(message);
-      appendError(message, "clarifications");
+      appendError(message, "friction");
       setSettingsOpen(true);
       return;
     }
@@ -3189,7 +3561,7 @@ export default function App() {
     if (runtimeDiagnostic.agents.some(cliMismatch)) {
       const message = formatPhase12MismatchError(runtimeDiagnostic);
       setError(message);
-      appendError(message, "clarifications");
+      appendError(message, "friction");
       setSettingsOpen(true);
       return;
     }
@@ -3198,24 +3570,24 @@ export default function App() {
     if (readinessFailures.length > 0) {
       const message = formatPhase12ReadinessError(readinessFailures);
       setError(message);
-      appendError(message, "clarifications");
+      appendError(message, "friction");
       setSettingsOpen(true);
       return;
     }
 
     appendStatus(
       "Runtime",
-      "clarifications",
+      "friction",
       buildRuntimeSummary("phase12", false),
       false,
     );
     appendStatus(
       "Running phase 2",
-      "clarifications",
-      "Generating multi-agent plans…",
+      "friction",
+      "Synthesizing the action brief in background…",
       true,
     );
-    const phase2StreamRequestId = startCliTimelineRun(2, "clarifications");
+    const phase2StreamRequestId = startCliTimelineRun(2, "friction");
     setPhase2Loading(true);
 
     try {
@@ -3223,65 +3595,61 @@ export default function App() {
         streamRequestId: phase2StreamRequestId,
       });
       const resultPlans = phase2AgentsFromResult(result, phase12AgentsSafe);
-      setPhase2Result(result);
-      setFrictionInboxDraft((previous) =>
-        previous
-          ? {
-              ...previous,
-              status: "submitted",
-            }
-          : previous,
+      const executionBrief = synthesizeExecutionBrief(
+        resultPlans,
+        effectiveDraft,
+        topDisagreements,
       );
+      const humanDecision = buildDecisionFromBrief(executionBrief);
+      const humanDecisionStructured = buildHumanDecisionStructuredFromBrief(
+        executionBrief,
+        resultPlans,
+      );
+      const submittedDraft: FrictionInboxDraft = {
+        ...effectiveDraft,
+        status: "submitted",
+      };
+      const updatedResult: Phase2Result = {
+        ...result,
+        humanDecision,
+        humanDecisionStructured,
+        executionBrief,
+        actionBrief: executionBrief,
+      };
+
+      setDecision(humanDecision);
+      setPhase2Result(updatedResult);
+      setFrictionInboxDraft(submittedDraft);
       setUnsavedState((prev) => ({ ...prev, phase2Dirty: false }));
       finalizeCliTimelineRun(phase2StreamRequestId, "finished");
 
-      // Auto-save draft after phase 2
-      writeDraft({
-        requirement,
-        clarifications: input,
-        decision: "",
-        phase1Result,
-        phase2Result: result,
-        frictionInboxDraft: frictionInboxDraft
-          ? {
-              ...frictionInboxDraft,
-              status: "submitted",
-            }
-          : null,
-        workflowStep: "decision",
-        savedAt: new Date().toISOString(),
-      });
-
-      transitionWorkflow("decision");
+      transitionWorkflow("brief");
+      setConversation((previous) =>
+        previous.filter((item) => item.type !== "execution_brief"),
+      );
 
       appendText(
         "assistant",
-        buildPhase2CompletionMessage(result, resultPlans),
-        "decision",
+        buildExecutionBriefReadyMessage(executionBrief),
+        "brief",
       );
       appendConversation({
         id: crypto.randomUUID(),
-        type: "plan",
+        type: "execution_brief",
         payload: {
           phase: 2,
-          phase2: result,
-          meta: metaFor("decision"),
+          brief: executionBrief,
+          meta: metaFor("brief"),
         },
       });
-      appendConversation({
-        id: crypto.randomUUID(),
-        type: "decision_phase2",
-        payload: {
-          phase: 2,
-          phase2: result,
-          meta: metaFor("decision"),
-        },
-      });
+      window.setTimeout(() => {
+        void persistSessionSnapshot({ silent: true, status: "brief_ready" });
+      }, 0);
     } catch (caught) {
       const message = extractErrorMessage(caught);
       finalizeCliTimelineRun(phase2StreamRequestId, "failed", message);
       setError(`Phase 2 failed: ${message}`);
-      appendError(`Phase 2 failed: ${message}`, "clarifications");
+      appendError(`Phase 2 failed: ${message}`, "friction");
       if (!runtimeDiagnostic) {
         void diagnosePhase12BeforeRun().catch(() => {
           // ignore diagnostics fallback errors in phase failure path
@@ -3292,66 +3660,11 @@ export default function App() {
     }
   }
 
-  function handleDecisionStep(
-    input: string,
-    structured?: HumanDecisionStructured,
-  ) {
-    if (!phase2Result) {
-      appendError("Run planning first.", "decision");
-      transitionWorkflow("clarifications");
-      return;
-    }
-
-    const issue = validateDecision(input);
-    if (issue) {
-      appendError(issue, "decision");
-      return;
-    }
-
-    setDecision(input);
-    const updatedPhase2Result: Phase2Result = {
-      ...phase2Result,
-      humanDecision: input,
-      humanDecisionStructured:
-        structured ?? phase2Result.humanDecisionStructured,
-    };
-    setPhase2Result(updatedPhase2Result);
-    setUnsavedState((prev) => ({ ...prev, phase2Dirty: true }));
-
-    // Auto-save draft with decision recorded
-    writeDraft({
-      requirement,
-      clarifications,
-      decision: input,
-      phase1Result,
-      phase2Result: updatedPhase2Result,
-      frictionInboxDraft,
-      workflowStep: "phase3_config",
-      savedAt: new Date().toISOString(),
-    });
-
-    transitionWorkflow("phase3_config");
-
-    appendText(
-      "assistant",
-      "Decision stored. Complete the inline validation block below, then run Phase 3.",
-      "phase3_config",
-    );
-    appendConversation({
-      id: crypto.randomUUID(),
-      type: "validate_phase3",
-      payload: {
-        phase: 3,
-        meta: metaFor("phase3_config"),
-      },
-    });
-  }
-
   async function handlePhase3Step() {
     if (!phase2Result || !requirement || !clarifications || !decision) {
       appendError(
-        "Complete steps 1 and 2 before running phase 3.",
-        "phase3_config",
+        "Complete the action brief before running proof mode.",
+        "brief",
       );
       return;
     }
@@ -3360,7 +3673,7 @@ export default function App() {
     if (trimmedRepoPath.length < 3) {
       const message = "Repository path is required.";
       setPhase3FormError(message);
-      appendError(message, "phase3_config");
+      appendError(message, "brief");
       focusComposerInput();
       return;
     }
@@ -3369,6 +3682,7 @@ export default function App() {
     setError(null);
     setSaveStatus(null);
     setRepoPath(trimmedRepoPath);
+    setProofModeOpen(true);
     setUnsavedState((prev) => ({ ...prev, phase3Dirty: true }));
 
     transitionWorkflow("phase3_run");
@@ -3379,9 +3693,9 @@ export default function App() {
       false,
     );
     appendStatus(
-      "Running phase 3",
+      "Running proof mode",
       "phase3_run",
-      "Executing adversarial validation…",
+      "Executing repo-backed proof checks…",
       true,
     );
     const phase3StreamRequestId = startCliTimelineRun(3, "phase3_run");
@@ -3408,12 +3722,15 @@ export default function App() {
       setPhase3Result(result);
       setUnsavedState((prev) => ({ ...prev, phase3Dirty: false }));
       finalizeCliTimelineRun(phase3StreamRequestId, "finished");
-      transitionWorkflow("completed");
+      transitionWorkflow("brief");
+      setConversation((previous) =>
+        previous.filter((item) => item.type !== "code"),
+      );
 
       appendText(
         "assistant",
-        "Phase 3 completed. Review findings and choose next action.",
-        "completed",
+        "Proof mode completed. Review the repo findings against the action brief.",
+        "brief",
       );
       appendConversation({
         id: crypto.randomUUID(),
@@ -3423,25 +3740,20 @@ export default function App() {
           phase3: result,
           repoPath: trimmedRepoPath,
           baseBranch: withTrimmed(baseBranch) || "main",
-          meta: metaFor("completed"),
+          meta: metaFor("brief"),
         },
       });
-      appendConversation({
-        id: crypto.randomUUID(),
-        type: "workflow_done",
-        payload: {
-          phase: 3,
-          meta: metaFor("completed"),
-        },
-      });
+      window.setTimeout(() => {
+        void persistSessionSnapshot({ silent: true, status: "proof_ready" });
+      }, 0);
     } catch (caught) {
       const message = extractErrorMessage(caught);
       finalizeCliTimelineRun(phase3StreamRequestId, "failed", message);
-      const fullMessage = `Phase 3 failed: ${message}`;
+      const fullMessage = `Proof mode failed: ${message}`;
       setPhase3FormError(fullMessage);
       setError(fullMessage);
-      appendError(fullMessage, "phase3_config");
-      transitionWorkflow("phase3_config");
+      appendError(fullMessage, "brief");
+      transitionWorkflow("brief");
     } finally {
       setPhase3Loading(false);
     }
@@ -3454,38 +3766,20 @@ export default function App() {
     if (!normalizedInput) return;
 
     const step = workflowStep;
-    if (step === "clarifications") {
+    if (step === "friction") {
       appendText(
         "assistant",
-        "Step 2 is friction-only. Resolve the inline Friction Inbox card, then click Resolve & Run Phase 2.",
-        "clarifications",
+        "Step 2 is friction-only. Use the inline card to resolve the top disagreements, then generate the brief.",
+        "friction",
       );
       return;
     }
 
-    if (step === "decision") {
+    if (step === "brief") {
       appendText(
         "assistant",
-        "Step 3 is inline-only. Use the arbitration block in the thread and click Apply decision.",
-        "decision",
-      );
-      return;
-    }
-
-    if (step === "phase3_config") {
-      appendText(
-        "assistant",
-        "Validation setup is inline-only. Use the Phase 3 block in the thread, then click Run Phase 3.",
-        "phase3_config",
-      );
-      return;
-    }
-
-    if (step === "completed") {
-      appendText(
-        "assistant",
-        "Workflow is complete. Use the inline Done block to save/export or start a new thread.",
-        "completed",
+        "The action brief is already ready. Use the inline brief card to export it, or open proof mode if you want repo evidence.",
+        "brief",
       );
       return;
     }
@@ -3506,24 +3800,117 @@ export default function App() {
     await submitWorkflowInput(input);
   }
 
-  function buildSnapshot() {
-    if (!phase1Result || !phase2Result) return null;
+  function ensureActiveSessionIdentity(
+    problemStatement = activeProblemStatement,
+  ) {
+    if (
+      !hasMeaningfulSessionContent &&
+      nonWhitespaceLength(problemStatement) < AUTOSAVE_MIN_NON_WHITESPACE
+    ) {
+      return null;
+    }
 
-    return buildSessionExport(
+    const existingId = currentSessionId ?? routeState.sessionId;
+    const existingCreatedAt = currentSessionCreatedAt;
+    if (existingId && existingCreatedAt) {
+      return { id: existingId, createdAt: existingCreatedAt };
+    }
+
+    const nextId = existingId ?? crypto.randomUUID();
+    const nextCreatedAt = existingCreatedAt ?? new Date().toISOString();
+    setCurrentSessionId(nextId);
+    setCurrentSessionCreatedAt(nextCreatedAt);
+    updateRoute(
+      (prev) => ({
+        ...prev,
+        sessionId: nextId,
+      }),
+      "replace",
+    );
+    return { id: nextId, createdAt: nextCreatedAt };
+  }
+
+  function buildSnapshot(options?: {
+    updatedAt?: string;
+    status?: SessionStatus;
+  }) {
+    const identity = ensureActiveSessionIdentity();
+    if (!identity) return null;
+
+    return buildSessionExport({
+      id: identity.id,
+      createdAt: identity.createdAt,
+      updatedAt: options?.updatedAt ?? new Date().toISOString(),
+      problemStatement: activeProblemStatement,
       requirement,
-      { ...phase1Result, humanClarifications: withTrimmed(clarifications) },
-      { ...phase2Result, humanDecision: withTrimmed(decision) },
-      phase3Result ?? placeholderPhase3(),
+      workflowStep,
+      composerText,
+      conversationItems: conversation,
+      frictionInboxDraft,
+      proofMode: {
+        open: proofModeOpen,
+        repoPath,
+        baseBranch,
+        consentedToDataset,
+      },
+      phase1: phase1Result
+        ? { ...phase1Result, humanClarifications: withTrimmed(clarifications) }
+        : null,
+      phase2: phase2Result
+        ? {
+            ...phase2Result,
+            humanDecision: withTrimmed(decision),
+          }
+        : null,
+      phase3: phase3Result ?? null,
       consentedToDataset,
       runtimeSettings,
-      APP_VERSION,
-    );
+      appVersion: APP_VERSION,
+      status: options?.status,
+    });
+  }
+
+  async function persistSessionSnapshot(options?: {
+    silent?: boolean;
+    status?: SessionStatus;
+  }) {
+    const snapshot = buildSnapshot({
+      updatedAt: new Date().toISOString(),
+      status: options?.status,
+    });
+    if (!snapshot) return null;
+
+    try {
+      const id = await saveSessionRecord(snapshot);
+      setCurrentSessionId(snapshot.id);
+      setCurrentSessionCreatedAt(snapshot.metadata.timestamp);
+      await refreshRecentSessions();
+      setUnsavedState({
+        phase1Dirty: false,
+        phase2Dirty: false,
+        phase3Dirty: false,
+      });
+      if (!options?.silent) {
+        const message = `Session snapshot saved (${id.slice(0, 8)}...).`;
+        setSaveStatus(message);
+        appendStatus("Snapshot saved", workflowStep, message, false);
+      }
+      return id;
+    } catch (caught) {
+      const message = extractErrorMessage(caught);
+      if (!options?.silent) {
+        const fullMessage = `Snapshot failed: ${message}`;
+        setSaveStatus(fullMessage);
+        appendError(fullMessage, workflowStep);
+      }
+      return null;
+    }
   }
 
   function handleExportSession() {
     const snapshot = buildSnapshot();
     if (!snapshot) {
-      const message = "Run phases 1 and 2 before exporting.";
+      const message = "Write a longer problem statement before exporting.";
       setSaveStatus(message);
       appendError(message, workflowStep);
       return;
@@ -3536,9 +3923,9 @@ export default function App() {
   }
 
   async function handleSaveSessionLocal() {
-    const snapshot = buildSnapshot();
-    if (!snapshot) {
-      const message = "Run phases 1 and 2 before saving.";
+    if (!buildSnapshot()) {
+      const message =
+        "Write a longer problem statement before creating a snapshot.";
       setSaveStatus(message);
       appendError(message, workflowStep);
       return;
@@ -3548,23 +3935,7 @@ export default function App() {
     setSaveStatus(null);
 
     try {
-      const id = await saveSessionRecord(snapshot);
-      await refreshRecentSessions();
-      const message = `Session saved locally (${id.slice(0, 8)}…).`;
-      setSaveStatus(message);
-      appendStatus("Save complete", workflowStep, message, false);
-      setUnsavedState({
-        phase1Dirty: false,
-        phase2Dirty: false,
-        phase3Dirty: false,
-      });
-      // Draft is superseded by the persisted session record
-      clearDraft();
-    } catch (caught) {
-      const message = extractErrorMessage(caught);
-      const fullMessage = `Save failed: ${message}`;
-      setSaveStatus(fullMessage);
-      appendError(fullMessage, workflowStep);
+      await persistSessionSnapshot({ silent: false });
     } finally {
       setSaveLocalLoading(false);
     }
@@ -3592,11 +3963,18 @@ export default function App() {
 
   function buildConversationFromSession(
     session: FrictionSession,
-    loadedPhase1: Phase1Result,
-    loadedPhase2: Phase2Result,
+    loadedPhase1: Phase1Result | null,
+    loadedPhase2: Phase2Result | null,
     loadedPhase3: Phase3Result,
     nextStep: WorkflowStep,
   ): ConversationItem[] {
+    if (session.conversation_items && session.conversation_items.length > 0) {
+      return session.conversation_items;
+    }
+
+    const sessionProblem = withTrimmed(
+      session.problem_statement ?? session.requirement,
+    );
     const items: ConversationItem[] = [
       {
         id: crypto.randomUUID(),
@@ -3604,60 +3982,57 @@ export default function App() {
         text: `Session ${session.id.slice(0, 8)} loaded.`,
         meta: metaFor(nextStep),
       },
-      {
+    ];
+
+    if (sessionProblem) {
+      items.push({
         id: crypto.randomUUID(),
         type: "user",
-        text: session.requirement,
+        text: sessionProblem,
         meta: metaFor("requirement"),
-      },
-      {
+      });
+    }
+
+    if (loadedPhase1 && !loadedPhase2) {
+      items.push({
         id: crypto.randomUUID(),
-        type: "plan",
+        type: "friction_phase1",
         payload: {
           phase: 1,
           phase1: loadedPhase1,
-          meta: metaFor("clarifications"),
+          meta: metaFor("friction"),
         },
-      },
-      {
+      });
+    }
+
+    if (loadedPhase2 && !loadedPhase2.executionBrief) {
+      const phase2Plans = phase2AgentsFromResult(
+        loadedPhase2,
+        phase12AgentsSafe,
+      );
+      loadedPhase2.executionBrief = synthesizeExecutionBriefFromLegacyDecision(
+        loadedPhase2,
+        phase2Plans,
+        loadedPhase1?.humanClarifications ?? "",
+      );
+    }
+
+    const restoredBrief =
+      loadedPhase2?.executionBrief ??
+      loadedPhase2?.actionBrief ??
+      session.result?.action_brief ??
+      session.result?.execution_brief;
+    if (restoredBrief) {
+      items.push({
         id: crypto.randomUUID(),
-        type: "user",
-        text: session.phase1.human_clarifications,
-        meta: metaFor("clarifications"),
-      },
-      {
-        id: crypto.randomUUID(),
-        type: "plan",
+        type: "execution_brief",
         payload: {
           phase: 2,
-          phase2: loadedPhase2,
-          meta: metaFor("decision"),
+          brief: restoredBrief as ExecutionBrief,
+          meta: metaFor("brief"),
         },
-      },
-      {
-        id: crypto.randomUUID(),
-        type: "decision_phase2",
-        payload: {
-          phase: 2,
-          phase2: loadedPhase2,
-          meta: metaFor("decision"),
-        },
-      },
-      {
-        id: crypto.randomUUID(),
-        type: "user",
-        text: session.phase2.human_decision,
-        meta: metaFor("decision"),
-      },
-      {
-        id: crypto.randomUUID(),
-        type: "validate_phase3",
-        payload: {
-          phase: 3,
-          meta: metaFor("phase3_config"),
-        },
-      },
-    ];
+      });
+    }
 
     if (
       loadedPhase3.codeA ||
@@ -3672,15 +4047,7 @@ export default function App() {
           phase3: loadedPhase3,
           repoPath: repoPath || "loaded-session",
           baseBranch: baseBranch || "main",
-          meta: metaFor("completed"),
-        },
-      });
-      items.push({
-        id: crypto.randomUUID(),
-        type: "workflow_done",
-        payload: {
-          meta: metaFor("completed"),
-          phase: 3,
+          meta: metaFor("brief"),
         },
       });
     }
@@ -3691,12 +4058,13 @@ export default function App() {
   function buildConversationFromDraft(
     draft: WorkflowDraft,
   ): ConversationItem[] {
+    const draftStep = normalizeWorkflowStep(draft.workflowStep);
     const items: ConversationItem[] = [
       {
         id: crypto.randomUUID(),
         type: "assistant",
         text: `Draft restored (auto-saved ${formatDateTime(draft.savedAt)}).`,
-        meta: metaFor(draft.workflowStep),
+        meta: metaFor(draftStep),
       },
       {
         id: crypto.randomUUID(),
@@ -3707,92 +4075,45 @@ export default function App() {
     ];
 
     if (draft.phase1Result) {
-      if (draft.phase2Result) {
-        items.push({
-          id: crypto.randomUUID(),
-          type: "plan",
-          payload: {
-            phase: 1,
-            phase1: draft.phase1Result,
-            meta: metaFor("clarifications"),
-          },
-        });
-      } else {
+      if (!draft.phase2Result) {
         items.push({
           id: crypto.randomUUID(),
           type: "friction_phase1",
           payload: {
             phase: 1,
             phase1: draft.phase1Result,
-            meta: metaFor("clarifications"),
+            meta: metaFor("friction"),
           },
         });
       }
-    }
-
-    if (draft.clarifications) {
-      items.push({
-        id: crypto.randomUUID(),
-        type: "user",
-        text: draft.clarifications,
-        meta: metaFor("clarifications"),
-      });
     }
 
     if (draft.phase2Result) {
+      const phase2Result =
+        draft.phase2Result.actionBrief || draft.phase2Result.executionBrief
+          ? draft.phase2Result
+          : {
+              ...draft.phase2Result,
+              executionBrief: synthesizeExecutionBriefFromLegacyDecision(
+                draft.phase2Result,
+                phase2AgentsFromResult(draft.phase2Result, phase12AgentsSafe),
+                draft.frictionInboxDraft?.contextNote ?? draft.clarifications,
+              ),
+            };
+      if (phase2Result.executionBrief && !phase2Result.actionBrief) {
+        phase2Result.actionBrief = phase2Result.executionBrief;
+      }
+
       items.push({
         id: crypto.randomUUID(),
-        type: "plan",
+        type: "execution_brief",
         payload: {
           phase: 2,
-          phase2: draft.phase2Result,
-          meta: metaFor("decision"),
+          brief: (phase2Result.actionBrief ??
+            phase2Result.executionBrief) as ExecutionBrief,
+          meta: metaFor("brief"),
         },
       });
-      if (!draft.decision) {
-        items.push({
-          id: crypto.randomUUID(),
-          type: "decision_phase2",
-          payload: {
-            phase: 2,
-            phase2: draft.phase2Result,
-            meta: metaFor("decision"),
-          },
-        });
-      }
-    }
-
-    if (draft.decision) {
-      items.push({
-        id: crypto.randomUUID(),
-        type: "user",
-        text: draft.decision,
-        meta: metaFor("decision"),
-      });
-      if (
-        draft.workflowStep === "phase3_config" ||
-        draft.workflowStep === "phase3_run" ||
-        draft.workflowStep === "completed"
-      ) {
-        items.push({
-          id: crypto.randomUUID(),
-          type: "validate_phase3",
-          payload: {
-            phase: 3,
-            meta: metaFor("phase3_config"),
-          },
-        });
-      }
-      if (draft.workflowStep === "completed") {
-        items.push({
-          id: crypto.randomUUID(),
-          type: "workflow_done",
-          payload: {
-            phase: 3,
-            meta: metaFor("completed"),
-          },
-        });
-      }
     }
 
     items.push({
@@ -3800,10 +4121,10 @@ export default function App() {
       type: "task",
       payload: {
         title: "Draft restored — continue where you left off",
-        description: `Step: ${draft.workflowStep}`,
-        suggestions: SUGGESTION_SETS[draft.workflowStep],
+        description: `Step: ${draftStep}`,
+        suggestions: SUGGESTION_SETS[draftStep],
         done: false,
-        meta: metaFor(draft.workflowStep),
+        meta: metaFor(draftStep),
       },
     });
 
@@ -3811,8 +4132,11 @@ export default function App() {
   }
 
   function hydrateFromSession(session: FrictionSession) {
-    const [phase1Architect, phase1Pragmatist] = session.phase1.interpretations;
-    const [phase2Architect, phase2Pragmatist] = session.phase2.plans;
+    const sessionProblem = withTrimmed(
+      session.problem_statement ?? session.requirement,
+    );
+    const phase1Log = session.phase1 ?? null;
+    const phase2Log = session.phase2 ?? null;
     const runtimePhase12Agents = phase12AgentsFromRuntime(
       session.metadata.runtime,
     );
@@ -3820,80 +4144,130 @@ export default function App() {
       session.metadata.runtime,
       runtimePhase12Agents,
     );
+    const [phase1Architect, phase1Pragmatist] =
+      phase1Log?.interpretations ?? [];
+    const [phase2Architect, phase2Pragmatist] = phase2Log?.plans ?? [];
 
+    const loadedPhase1: Phase1Result | null =
+      phase1Log && (phase1Architect || phase1Pragmatist)
+        ? {
+            architect: phase1Architect ?? phase1Pragmatist,
+            pragmatist: phase1Pragmatist ?? phase1Architect,
+            agentResponses: phase1Log.interpretations.map((response, index) => {
+              const agent = runtimePhase12Agents[index] ?? {
+                id: `agent_${index + 1}`,
+                label: `Agent ${index + 1}`,
+                cli: DEFAULT_AGENT_A_CLI,
+              };
+              return {
+                id: agent.id,
+                label: agent.label,
+                cli: agent.cli,
+                response,
+              };
+            }),
+            divergences: phase1Log.divergences,
+            humanClarifications: phase1Log.human_clarifications,
+          }
+        : null;
+
+    const loadedPhase2: Phase2Result | null =
+      phase2Log && (phase2Architect || phase2Pragmatist)
+        ? {
+            architect: phase2Architect ?? phase2Pragmatist,
+            pragmatist: phase2Pragmatist ?? phase2Architect,
+            agentPlans: phase2Log.plans.map((plan, index) => {
+              const agent = runtimePhase12Agents[index] ?? {
+                id: `agent_${index + 1}`,
+                label: `Agent ${index + 1}`,
+                cli: DEFAULT_AGENT_A_CLI,
+              };
+              return {
+                id: agent.id,
+                label: agent.label,
+                cli: agent.cli,
+                plan,
+              };
+            }),
+            divergences: phase2Log.divergences,
+            humanDecision: phase2Log.human_decision,
+            humanDecisionStructured: phase2Log.human_decision_structured,
+            executionBrief:
+              phase2Log.execution_brief ??
+              phase2Log.action_brief ??
+              session.result?.action_brief ??
+              session.result?.execution_brief,
+            actionBrief:
+              phase2Log.action_brief ??
+              phase2Log.execution_brief ??
+              session.result?.action_brief ??
+              session.result?.execution_brief,
+          }
+        : null;
+
+    if (loadedPhase2 && !loadedPhase2.executionBrief) {
+      loadedPhase2.executionBrief = synthesizeExecutionBriefFromLegacyDecision(
+        loadedPhase2,
+        phase2AgentsFromResult(loadedPhase2, runtimePhase12Agents),
+        loadedPhase1?.humanClarifications ?? "",
+      );
+      loadedPhase2.actionBrief = loadedPhase2.executionBrief;
+    }
     if (
-      !phase1Architect ||
-      !phase1Pragmatist ||
-      !phase2Architect ||
-      !phase2Pragmatist
+      loadedPhase2 &&
+      !loadedPhase2.humanDecisionStructured &&
+      loadedPhase2.executionBrief
     ) {
-      const message = "Session is invalid: missing phase interpretation/plan.";
-      setError(message);
-      appendError(message, workflowStep);
-      return;
+      loadedPhase2.humanDecisionStructured =
+        buildHumanDecisionStructuredFromBrief(
+          loadedPhase2.executionBrief as ExecutionBrief,
+          phase2AgentsFromResult(loadedPhase2, runtimePhase12Agents),
+        );
+    }
+    if (
+      loadedPhase2 &&
+      !withTrimmed(loadedPhase2.humanDecision) &&
+      loadedPhase2.executionBrief
+    ) {
+      loadedPhase2.humanDecision = buildDecisionFromBrief(
+        loadedPhase2.executionBrief as ExecutionBrief,
+      );
     }
 
-    const loadedPhase1: Phase1Result = {
-      architect: phase1Architect,
-      pragmatist: phase1Pragmatist,
-      agentResponses: session.phase1.interpretations.map((response, index) => {
-        const agent = runtimePhase12Agents[index] ?? {
-          id: `agent_${index + 1}`,
-          label: `Agent ${index + 1}`,
-          cli: DEFAULT_AGENT_A_CLI,
-        };
-        return {
-          id: agent.id,
-          label: agent.label,
-          cli: agent.cli,
-          response,
-        };
-      }),
-      divergences: session.phase1.divergences,
-      humanClarifications: session.phase1.human_clarifications,
-    };
+    const loadedPhase3: Phase3Result = session.phase3
+      ? {
+          codeA: session.phase3.code_a,
+          codeB: session.phase3.code_b,
+          attackReport: session.phase3.attack_report,
+          confidenceScore: session.phase3.confidence_score,
+          adrPath: session.phase3.adr_path,
+          adrMarkdown: session.phase3.adr_markdown,
+          workflowMode: session.metadata.workflow_mode,
+        }
+      : placeholderPhase3();
 
-    const loadedPhase2: Phase2Result = {
-      architect: phase2Architect,
-      pragmatist: phase2Pragmatist,
-      agentPlans: session.phase2.plans.map((plan, index) => {
-        const agent = runtimePhase12Agents[index] ?? {
-          id: `agent_${index + 1}`,
-          label: `Agent ${index + 1}`,
-          cli: DEFAULT_AGENT_A_CLI,
-        };
-        return {
-          id: agent.id,
-          label: agent.label,
-          cli: agent.cli,
-          plan,
-        };
-      }),
-      divergences: session.phase2.divergences,
-      humanDecision: session.phase2.human_decision,
-      humanDecisionStructured: session.phase2.human_decision_structured,
-    };
-
-    const loadedPhase3: Phase3Result = {
-      codeA: session.phase3.code_a,
-      codeB: session.phase3.code_b,
-      attackReport: session.phase3.attack_report,
-      confidenceScore: session.phase3.confidence_score,
-      adrPath: session.phase3.adr_path,
-      adrMarkdown: session.phase3.adr_markdown,
-      workflowMode: session.metadata.workflow_mode,
-    };
-
-    setRequirement(session.requirement);
-    setClarifications(session.phase1.human_clarifications);
-    setDecision(session.phase2.human_decision);
-    setFrictionInboxDraft(null);
+    setCurrentSessionId(session.id);
+    setCurrentSessionCreatedAt(session.metadata.timestamp);
+    setComposerText(session.working_state?.composerText ?? "");
+    setRequirement(sessionProblem);
+    setClarifications(loadedPhase1?.humanClarifications ?? "");
+    setDecision(loadedPhase2?.humanDecision ?? "");
+    setFrictionInboxDraft(session.working_state?.frictionDraft ?? null);
     setPhase12Agents(runtimePhase12Agents);
     setPhase3AgentACli(runtimePhase3.agentA);
     setPhase3AgentBCli(runtimePhase3.agentB);
     setPhase1Result(loadedPhase1);
     setPhase2Result(loadedPhase2);
-    setPhase3Result(loadedPhase3);
+    setPhase3Result(
+      loadedPhase3.codeA ||
+        loadedPhase3.codeB ||
+        loadedPhase3.attackReport.length > 0
+        ? loadedPhase3
+        : null,
+    );
+    setRepoPath(session.working_state?.proofMode?.repoPath ?? "");
+    setBaseBranch(session.working_state?.proofMode?.baseBranch ?? "main");
+    setProofModeOpen(session.working_state?.proofMode?.open ?? false);
     setConsentedToDataset(session.metadata.consented_to_dataset);
 
     if (session.metadata.runtime) {
@@ -3906,7 +4280,13 @@ export default function App() {
     }
 
     const nextStep: WorkflowStep =
-      loadedPhase3.codeA || loadedPhase3.codeB ? "completed" : "phase3_config";
+      session.working_state?.currentStep === "phase3_run"
+        ? "phase3_run"
+        : loadedPhase2?.executionBrief
+          ? "brief"
+          : loadedPhase1
+            ? "friction"
+            : "requirement";
     setWorkflowStep(nextStep);
     setConversation(
       buildConversationFromSession(
@@ -3938,6 +4318,7 @@ export default function App() {
     setSaveStatus(null);
     setError(null);
     resetCliTimelineRuns();
+    isHydratingSessionRef.current = true;
 
     try {
       const session = await loadSessionRecord(id);
@@ -3952,10 +4333,15 @@ export default function App() {
       const fullMessage = `Load failed: ${message}`;
       setError(fullMessage);
       appendError(fullMessage, workflowStep);
+    } finally {
+      isHydratingSessionRef.current = false;
     }
   }
 
   function handleLoadSession(id: string) {
+    if (currentSessionId !== id) {
+      void persistSessionSnapshot({ silent: true });
+    }
     guardUnsaved(
       () => {
         updateRoute((prev) => ({ ...prev, sessionId: id }), "push");
@@ -3970,9 +4356,10 @@ export default function App() {
   }
 
   function restartNow() {
-    clearDraft();
     resetCliTimelineRuns();
     setComposerText("");
+    setCurrentSessionId(null);
+    setCurrentSessionCreatedAt(null);
     setRequirement("");
     setClarifications("");
     setDecision("");
@@ -3982,6 +4369,7 @@ export default function App() {
     setPhase3Result(null);
     setRepoPath("");
     setBaseBranch("main");
+    setProofModeOpen(false);
     setConsentedToDataset(false);
     setSaveStatus(null);
     setError(null);
@@ -4005,7 +4393,7 @@ export default function App() {
   }
 
   function handleSuggestionPick(suggestion: string) {
-    if (suggestion === "Save session") {
+    if (suggestion === "Create snapshot") {
       void handleSaveSessionLocal();
       return;
     }
@@ -4087,20 +4475,68 @@ export default function App() {
     if (!readRouteStateFromLocation().sessionId) {
       const draft = readDraft();
       if (draft && draft.requirement && draft.phase1Result) {
+        const nextFrictionDraft = draft.phase2Result
+          ? null
+          : reconcileFrictionInboxDraft(
+              draft.phase1Result,
+              draft.frictionInboxDraft ?? null,
+            );
+        const nextPhase2Result = draft.phase2Result
+          ? draft.phase2Result.executionBrief
+            ? draft.phase2Result
+            : (() => {
+                const phase2Plans = phase2AgentsFromResult(
+                  draft.phase2Result,
+                  phase12AgentsSafe,
+                );
+                const executionBrief =
+                  synthesizeExecutionBriefFromLegacyDecision(
+                    draft.phase2Result,
+                    phase2Plans,
+                    draft.frictionInboxDraft?.contextNote ??
+                      draft.clarifications,
+                  );
+                return {
+                  ...draft.phase2Result,
+                  executionBrief,
+                  humanDecisionStructured:
+                    draft.phase2Result.humanDecisionStructured ??
+                    buildHumanDecisionStructuredFromBrief(
+                      executionBrief,
+                      phase2Plans,
+                    ),
+                  humanDecision:
+                    withTrimmed(draft.phase2Result.humanDecision) ||
+                    buildDecisionFromBrief(executionBrief),
+                };
+              })()
+          : null;
+        const restoredStep: WorkflowStep = nextPhase2Result
+          ? normalizeWorkflowStep(draft.workflowStep)
+          : "friction";
+        const nextDecision =
+          nextPhase2Result?.humanDecision &&
+          withTrimmed(nextPhase2Result.humanDecision)
+            ? nextPhase2Result.humanDecision
+            : nextPhase2Result?.executionBrief
+              ? buildDecisionFromBrief(nextPhase2Result.executionBrief)
+              : draft.decision;
         setRequirement(draft.requirement);
         if (draft.clarifications) setClarifications(draft.clarifications);
-        if (draft.decision) setDecision(draft.decision);
-        setFrictionInboxDraft(
-          draft.frictionInboxDraft
-            ? normalizeFrictionInboxDraft(draft.frictionInboxDraft)
-            : draft.phase2Result
-              ? null
-              : createFrictionInboxDraft(draft.phase1Result),
-        );
+        if (nextDecision) setDecision(nextDecision);
+        setFrictionInboxDraft(nextFrictionDraft);
         setPhase1Result(draft.phase1Result);
-        if (draft.phase2Result) setPhase2Result(draft.phase2Result);
-        setWorkflowStep(draft.workflowStep);
-        setConversation(buildConversationFromDraft(draft));
+        if (nextPhase2Result) setPhase2Result(nextPhase2Result);
+        setWorkflowStep(restoredStep);
+        setConversation(
+          buildConversationFromDraft({
+            ...draft,
+            decision: nextDecision,
+            phase2Result: nextPhase2Result,
+            frictionInboxDraft: nextFrictionDraft,
+            workflowStep: restoredStep,
+          }),
+        );
       }
     }
   }, []);
@@ -4248,7 +4684,9 @@ export default function App() {
     if (visibleCliAliases.length === 0) {
       return;
     }
-    if (lastInventoryRefreshSignatureRef.current === inventoryRefreshSignature) {
+    if (
+      lastInventoryRefreshSignatureRef.current === inventoryRefreshSignature
+    ) {
       return;
     }
     lastInventoryRefreshSignatureRef.current = inventoryRefreshSignature;
@@ -4271,21 +4709,82 @@ export default function App() {
   }, [visibleCliAliases, cliModelInventoryLoaded, cliModelInventoryLoading]);
 
   useEffect(() => {
-    if (!routeState.sessionId) return;
-    void performLoadSession(routeState.sessionId);
-  }, [routeState.sessionId]);
+    if (isHydratingSessionRef.current) return;
+    if (
+      !hasMeaningfulSessionContent &&
+      nonWhitespaceLength(activeProblemStatement) < AUTOSAVE_MIN_NON_WHITESPACE
+    ) {
+      return;
+    }
+
+    if (autosaveTimerRef.current !== null) {
+      window.clearTimeout(autosaveTimerRef.current);
+    }
+
+    autosaveTimerRef.current = window.setTimeout(() => {
+      autosaveTimerRef.current = null;
+      void persistSessionSnapshot({ silent: true });
+    }, AUTOSAVE_DEBOUNCE_MS);
+
+    return () => {
+      if (autosaveTimerRef.current !== null) {
+        window.clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
+    };
+  }, [
+    activeProblemStatement,
+    baseBranch,
+    composerText,
+    consentedToDataset,
+    conversation,
+    frictionInboxDraft,
+    hasMeaningfulSessionContent,
+    phase1Loading,
+    phase1Result,
+    phase2Loading,
+    phase2Result,
+    phase3Loading,
+    phase3Result,
+    proofModeOpen,
+    repoPath,
+    workflowStep,
+  ]);
 
   useEffect(() => {
-    if (!hasUnsaved) return;
+    if (!routeState.sessionId || routeState.sessionId === currentSessionId)
+      return;
+    void performLoadSession(routeState.sessionId);
+  }, [currentSessionId, routeState.sessionId]);
 
+  useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
+      if (
+        hasMeaningfulSessionContent ||
+        nonWhitespaceLength(activeProblemStatement) >=
+          AUTOSAVE_MIN_NON_WHITESPACE
+      ) {
+        void persistSessionSnapshot({ silent: true });
+      }
+      if (hasUnsaved) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        void persistSessionSnapshot({ silent: true });
+      }
     };
 
     window.addEventListener("beforeunload", beforeUnload);
-    return () => window.removeEventListener("beforeunload", beforeUnload);
-  }, [hasUnsaved]);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("beforeunload", beforeUnload);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [activeProblemStatement, hasMeaningfulSessionContent, hasUnsaved]);
 
   // Persist settings to localStorage whenever any setting changes
   useEffect(() => {
@@ -4346,7 +4845,11 @@ export default function App() {
     return () => {
       viewport.removeEventListener("scroll", handleScroll);
     };
-  }, [assistantThreadMessages.length, getThreadViewport, syncThreadScrollState]);
+  }, [
+    assistantThreadMessages.length,
+    getThreadViewport,
+    syncThreadScrollState,
+  ]);
 
   useEffect(() => {
     if (!threadAutoScrollRef.current) {
@@ -4363,8 +4866,7 @@ export default function App() {
 
   useEffect(() => {
     if (promptModelAgentIds.length === 0) return;
-    if (promptModelAgentIds.includes(activePromptModelAgentId))
-      return;
+    if (promptModelAgentIds.includes(activePromptModelAgentId)) return;
     setActivePromptModelAgentId(promptModelAgentIds[0]);
   }, [activePromptModelAgentId, promptModelAgentIds]);
   const composerAccessory: JSX.Element | null = null;
@@ -4440,14 +4942,6 @@ export default function App() {
               ].join(" ")}
               aria-label="Saved sessions"
             >
-              <div className="friction-modern-sidebar-head">
-                <span className="friction-sidebar-logo" aria-hidden="true">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-                  </svg>
-                </span>
-                <span className="friction-sidebar-wordmark">Friction</span>
-              </div>
               <div className="friction-modern-sidebar-body">
                 <div className="aui-root friction-threadlist-sidebar">
                   <ThreadList />
@@ -4469,7 +4963,7 @@ export default function App() {
                   disabled={!canPersistSession || saveLocalLoading}
                 >
                   <Save className="h-4 w-4" aria-hidden="true" />
-                  {saveLocalLoading ? "Saving…" : "Save"}
+                  {saveLocalLoading ? "Saving…" : "Snapshot"}
                 </Button>
                 <Button
                   variant="ghost"
@@ -4494,14 +4988,14 @@ export default function App() {
                     <PanelLeft className="h-4 w-4" aria-hidden="true" />
                   </Button>
                   <div>
-                    <h1 className="friction-modern-title">Decision chat</h1>
+                    <h1 className="friction-modern-title">Friction</h1>
                     <p className="friction-modern-subtitle">
-                      Orchestrated workflow chat with automatic phase execution.
+                      Multi-AI disagreement engine for bugs, decisions, and open
+                      problems.
                     </p>
                   </div>
                 </div>
                 <div className="friction-modern-header-right">
-
                   <ThemeToggle />
                 </div>
               </header>
@@ -4580,7 +5074,6 @@ export default function App() {
                       ) : null}
                     </div>
                   </ConversationShell>
-
                 </div>
               </div>
             </section>

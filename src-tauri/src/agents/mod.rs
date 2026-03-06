@@ -42,30 +42,30 @@ Quand tu reçois un requirement, réponds UNIQUEMENT en JSON valide avec cette s
 
 const SYSTEM_ARCHITECT_PLAN: &str = r#"Tu es \"L'Architecte\" — ingénieur senior, rigoureux, orienté maintenabilité et robustesse.
 
-Tu reçois un requirement original + des clarifications du client. Produis un plan d'implémentation détaillé.
+Tu reçois un problem statement original + des clarifications du client. Produis un brief d'approche détaillé, utile pour réfléchir à un bug, une décision, une hypothèse ou une investigation.
 Réponds UNIQUEMENT en JSON valide:
 {
-  \"stack\": [\"technologie 1\", \"technologie 2\", \"...\"],
-  \"phases\": [
-    { \"name\": \"Nom de la phase\", \"duration\": \"estimation\", \"tasks\": [\"tâche 1\", \"tâche 2\"] }
-  ],
-  \"architecture\": \"Description de l'architecture choisie en 3-4 phrases\",
+  \"problem_read\": \"Comment tu cadres le problème en 2-4 phrases\",
+  \"main_hypothesis\": \"Hypothèse ou angle principal retenu\",
+  \"strategy\": \"Stratégie d'investigation ou de résolution en 3-4 phrases\",
   \"tradeoffs\": [\"tradeoff ou décision clé 1\", \"tradeoff ou décision clé 2\"],
-  \"warnings\": [\"point de vigilance 1\", \"point de vigilance 2\"]
+  \"next_steps\": [\"prochaine étape 1\", \"prochaine étape 2\", \"prochaine étape 3\"],
+  \"risks\": [\"risque ouvert 1\", \"risque ouvert 2\"],
+  \"open_questions\": [\"question ouverte 1\", \"question ouverte 2\"]
 }"#;
 
 const SYSTEM_PRAGMATIST_PLAN: &str = r#"Tu es \"Le Pragmatiste\" — dev orienté livraison rapide, MVP, simplicité.
 
-Tu reçois un requirement original + des clarifications du client. Produis un plan d'implémentation concis.
+Tu reçois un problem statement original + des clarifications du client. Produis un brief d'approche concis et actionnable.
 Réponds UNIQUEMENT en JSON valide:
 {
-  \"stack\": [\"technologie 1\", \"technologie 2\", \"...\"],
-  \"phases\": [
-    { \"name\": \"Nom de la phase\", \"duration\": \"estimation\", \"tasks\": [\"tâche 1\", \"tâche 2\"] }
-  ],
-  \"architecture\": \"Description de l'architecture choisie en 3-4 phrases\",
+  \"problem_read\": \"Comment tu cadres le problème en 2-4 phrases\",
+  \"main_hypothesis\": \"Hypothèse ou angle principal retenu\",
+  \"strategy\": \"Stratégie d'investigation ou de résolution en 3-4 phrases\",
   \"tradeoffs\": [\"tradeoff ou décision clé 1\", \"tradeoff ou décision clé 2\"],
-  \"warnings\": [\"point de vigilance 1\", \"point de vigilance 2\"]
+  \"next_steps\": [\"prochaine étape 1\", \"prochaine étape 2\", \"prochaine étape 3\"],
+  \"risks\": [\"risque ouvert 1\", \"risque ouvert 2\"],
+  \"open_questions\": [\"question ouverte 1\", \"question ouverte 2\"]
 }"#;
 
 const SYSTEM_ADDITIONAL_ANALYST: &str = r#"Tu es un agent d'analyse indépendant. Tu dois apporter un angle distinct (risques cachés, coûts, exploitation ou robustesse), sans répéter les autres.
@@ -79,18 +79,18 @@ Quand tu reçois un requirement, réponds UNIQUEMENT en JSON valide avec cette s
   \"approach\": \"Ton approche technique en 2-3 phrases\"
 }"#;
 
-const SYSTEM_ADDITIONAL_PLANNER: &str = r#"Tu es un agent de planification indépendant. Tu dois proposer un plan distinct et concret avec un angle complémentaire (performance, sécurité, opérations, coût).
+const SYSTEM_ADDITIONAL_PLANNER: &str = r#"Tu es un agent de planification indépendant. Tu dois proposer un brief d'approche distinct et concret avec un angle complémentaire (performance, sécurité, opérations, coût).
 
-Tu reçois un requirement original + des clarifications du client. Produis un plan d'implémentation détaillé.
+Tu reçois un problem statement original + des clarifications du client. Produis un brief d'approche détaillé.
 Réponds UNIQUEMENT en JSON valide:
 {
-  \"stack\": [\"technologie 1\", \"technologie 2\", \"...\"],
-  \"phases\": [
-    { \"name\": \"Nom de la phase\", \"duration\": \"estimation\", \"tasks\": [\"tâche 1\", \"tâche 2\"] }
-  ],
-  \"architecture\": \"Description de l'architecture choisie en 3-4 phrases\",
+  \"problem_read\": \"Comment tu cadres le problème en 2-4 phrases\",
+  \"main_hypothesis\": \"Hypothèse ou angle principal retenu\",
+  \"strategy\": \"Stratégie d'investigation ou de résolution en 3-4 phrases\",
   \"tradeoffs\": [\"tradeoff ou décision clé 1\", \"tradeoff ou décision clé 2\"],
-  \"warnings\": [\"point de vigilance 1\", \"point de vigilance 2\"]
+  \"next_steps\": [\"prochaine étape 1\", \"prochaine étape 2\", \"prochaine étape 3\"],
+  \"risks\": [\"risque ouvert 1\", \"risque ouvert 2\"],
+  \"open_questions\": [\"question ouverte 1\", \"question ouverte 2\"]
 }"#;
 
 const AGENT_A_CLI_PROMPT: &str = r#"You are Agent A in an adversarial validation workflow.
@@ -230,14 +230,14 @@ pub struct Phase12CliRunContext {
 }
 
 #[derive(Clone)]
-struct Phase12CliAgentContext {
-    request_id: String,
-    phase: u8,
-    agent_id: String,
-    agent_label: String,
-    agent_cli: String,
-    emitter: CliCommandLogEmitter,
-    legacy_phase12_emitter: Option<Phase12CliLogEmitter>,
+pub struct Phase12CliAgentContext {
+    pub request_id: String,
+    pub phase: u8,
+    pub agent_id: String,
+    pub agent_label: String,
+    pub agent_cli: String,
+    pub emitter: CliCommandLogEmitter,
+    pub legacy_phase12_emitter: Option<Phase12CliLogEmitter>,
 }
 
 #[derive(Clone, Copy)]
@@ -404,7 +404,7 @@ struct GeminiRuntimeReadiness {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CliExecutionIsolationMode {
+pub enum CliExecutionIsolationMode {
     StrictPhase12,
     SharedWorktree,
 }
@@ -718,12 +718,78 @@ fn phase_contains_non_empty_content(phase: &PlanPhase) -> bool {
         || has_non_empty_items(&phase.tasks)
 }
 
+fn normalize_agent_plan(mut plan: AgentPlan) -> AgentPlan {
+    if plan.next_steps.is_empty() {
+        plan.next_steps = plan
+            .phases
+            .iter()
+            .flat_map(|phase| phase.tasks.clone())
+            .filter(|task| !task.trim().is_empty())
+            .collect();
+    }
+
+    if plan.risks.is_empty() {
+        plan.risks = plan.warnings.clone();
+    }
+
+    if plan.strategy.trim().is_empty() {
+        plan.strategy = if !plan.architecture.trim().is_empty() {
+            plan.architecture.clone()
+        } else if !plan.problem_read.trim().is_empty() {
+            plan.problem_read.clone()
+        } else {
+            "No explicit strategy captured.".to_string()
+        };
+    }
+
+    if plan.problem_read.trim().is_empty() {
+        plan.problem_read = if !plan.architecture.trim().is_empty() {
+            format!("Frames the problem through this approach: {}", plan.architecture)
+        } else if !plan.strategy.trim().is_empty() {
+            plan.strategy.clone()
+        } else {
+            "No explicit problem framing captured.".to_string()
+        };
+    }
+
+    if plan.main_hypothesis.trim().is_empty() {
+        plan.main_hypothesis = plan
+            .tradeoffs
+            .iter()
+            .find(|item| !item.trim().is_empty())
+            .cloned()
+            .or_else(|| {
+                plan.risks
+                    .iter()
+                    .find(|item| !item.trim().is_empty())
+                    .cloned()
+            })
+            .unwrap_or_else(|| plan.strategy.clone());
+    }
+
+    if plan.architecture.trim().is_empty() {
+        plan.architecture = plan.strategy.clone();
+    }
+
+    if plan.warnings.is_empty() {
+        plan.warnings = plan.risks.clone();
+    }
+
+    plan
+}
+
 fn validate_agent_plan_content(plan: &AgentPlan) -> Result<(), String> {
-    let has_content = !plan.architecture.trim().is_empty()
+    let has_content = !plan.problem_read.trim().is_empty()
+        || !plan.main_hypothesis.trim().is_empty()
+        || !plan.strategy.trim().is_empty()
+        || !plan.architecture.trim().is_empty()
         || has_non_empty_items(&plan.stack)
         || plan.phases.iter().any(phase_contains_non_empty_content)
         || has_non_empty_items(&plan.tradeoffs)
-        || has_non_empty_items(&plan.warnings);
+        || has_non_empty_items(&plan.warnings)
+        || has_non_empty_items(&plan.next_steps)
+        || has_non_empty_items(&plan.risks)
+        || has_non_empty_items(&plan.open_questions);
 
     if has_content {
         Ok(())
@@ -765,7 +831,7 @@ impl RuntimeAgent {
                 let raw = self
                     .call_provider(self.role.plan_prompt(), &user_payload)
                     .await?;
-                let plan = parse_json_payload::<AgentPlan>(&raw)?;
+                let plan = normalize_agent_plan(parse_json_payload::<AgentPlan>(&raw)?);
                 validate_agent_plan_content(&plan)
                     .map_err(|err| format!("Provider response invalid: {err}"))?;
                 Ok(plan)
@@ -1164,7 +1230,7 @@ pub async fn plan_multi_via_cli(
         let prompt = plan_prompt_for_agent(agent, index, requirement, clarifications);
         let label = format!("{} CLI phase2 planning", agent.label);
         let parse_and_validate = |raw: &str| -> Result<AgentPlan, String> {
-            let plan = parse_json_payload::<AgentPlan>(raw)?;
+            let plan = normalize_agent_plan(parse_json_payload::<AgentPlan>(raw)?);
             validate_agent_plan_content(&plan)?;
             Ok(plan)
         };
@@ -2912,7 +2978,7 @@ pub async fn generate_attack_report_via_cli(
     Ok((parsed.attack_report, raw))
 }
 
-async fn run_agent_cli(
+pub async fn run_agent_cli(
     agent_cli: &str,
     agent_model_scope: Option<&str>,
     prompt: &str,
@@ -5409,6 +5475,18 @@ fn coerce_agent_plan_from_raw(raw: &str) -> Option<AgentPlan> {
     }
 
     Some(AgentPlan {
+        problem_read: first_sentence_like_text(raw, 220)
+            .unwrap_or_else(|| "Fallback problem framing generated from non-JSON CLI output.".to_string()),
+        main_hypothesis: first_sentence_like_text(raw, 160)
+            .unwrap_or_else(|| "Fallback hypothesis generated from non-JSON CLI output.".to_string()),
+        strategy: architecture.clone(),
+        next_steps: vec![
+            "Clarify scope and constraints.".to_string(),
+            "Run the smallest meaningful investigation or implementation step.".to_string(),
+            "Review findings and adjust the chosen direction.".to_string(),
+        ],
+        risks: vec!["Output was non-JSON; this approach brief is auto-coerced.".to_string()],
+        open_questions: vec![],
         stack,
         phases: vec![PlanPhase {
             name: "Fallback implementation plan".to_string(),
@@ -5431,12 +5509,21 @@ fn looks_like_known_phase_payload(value: &Value) -> bool {
     if object.is_empty() {
         return false;
     }
-    const KNOWN_KEYS: [&str; 11] = [
+    const KNOWN_KEYS: [&str; 20] = [
         "interpretation",
         "assumptions",
         "risks",
         "questions",
         "approach",
+        "problem_read",
+        "problemRead",
+        "main_hypothesis",
+        "mainHypothesis",
+        "strategy",
+        "next_steps",
+        "nextSteps",
+        "open_questions",
+        "openQuestions",
         "stack",
         "phases",
         "architecture",
@@ -5616,6 +5703,22 @@ fn mock_plan(role: AgentRole, requirement: &str, clarifications: &str) -> AgentP
 
     match role {
         AgentRole::Architect => AgentPlan {
+            problem_read: "Treat the problem as a system decision that needs explicit invariants before action.".to_string(),
+            main_hypothesis: "A tighter framing and explicit constraints will reduce downstream disagreement cost.".to_string(),
+            strategy: "Stabilize the problem frame first, then sequence a small set of high-leverage actions with explicit tradeoffs.".to_string(),
+            next_steps: vec![
+                "Clarify success criteria and non-negotiable constraints.".to_string(),
+                "Pick the safest baseline direction and note what is intentionally deferred.".to_string(),
+                "Run one proof step to validate the chosen direction.".to_string(),
+            ],
+            risks: vec![
+                "Key constraints may still be implicit.".to_string(),
+                "An attractive short-term path may hide operational cost.".to_string(),
+            ],
+            open_questions: vec![
+                "What must be true for the decision to be considered successful?".to_string(),
+                "Which failure mode is least acceptable in production?".to_string(),
+            ],
             stack: vec![
                 "Tauri".to_string(),
                 "React".to_string(),
@@ -5635,6 +5738,25 @@ fn mock_plan(role: AgentRole, requirement: &str, clarifications: &str) -> AgentP
             ],
         },
         AgentRole::Pragmatist => AgentPlan {
+            problem_read: "Treat the problem as something to unblock quickly with the smallest useful move.".to_string(),
+            main_hypothesis: "A narrow first move plus fast feedback will outperform a broad upfront design.".to_string(),
+            strategy: "Choose the shortest path that reveals whether the current direction is good enough, then iterate from evidence.".to_string(),
+            next_steps: vec![
+                "Define the smallest test or action that can reduce uncertainty now.".to_string(),
+                "Execute that step and observe what changes.".to_string(),
+                "Keep only the follow-up work justified by the new evidence.".to_string(),
+            ],
+            risks: vec![
+                "Fast moves can hide systemic issues if no rollback is defined.".to_string(),
+                if has_clarifications {
+                    "Clarifications may still be interpreted too loosely.".to_string()
+                } else {
+                    "The direction still depends on unstated assumptions.".to_string()
+                },
+            ],
+            open_questions: vec![
+                "What is the minimum proof we need before committing more time?".to_string(),
+            ],
             stack: vec![
                 "Tauri".to_string(),
                 "React".to_string(),

@@ -36,10 +36,16 @@ export interface PlanPhase {
 }
 
 export interface AgentPlan {
+  problemRead: string;
+  mainHypothesis: string;
+  strategy: string;
+  tradeoffs: string[];
+  nextSteps: string[];
+  risks: string[];
+  openQuestions: string[];
   stack: string[];
   phases: PlanPhase[];
   architecture: string;
-  tradeoffs: string[];
   warnings: string[];
 }
 
@@ -116,6 +122,34 @@ export interface HumanDecisionStructured {
   rationale: string;
 }
 
+export interface TopDisagreement {
+  key: string;
+  index: number;
+  rank: number;
+  field: string;
+  severity: Divergence["severity"];
+  disagreementScore?: number;
+  divergence: Divergence;
+}
+
+export interface ExecutionBrief {
+  mode: "winner" | "hybrid";
+  problemFrame: string;
+  finalDecision: string;
+  baselineAgentId: string;
+  baselineLabel: string;
+  baselineApproach: string;
+  mainHypothesis: string;
+  acceptedTradeoffs: string[];
+  constraints: string;
+  nextSteps: string[];
+  openRisks: string[];
+  openQuestions: string[];
+  mergeNote?: string;
+  borrowedAgentId?: string;
+  borrowedLabel?: string;
+}
+
 export interface Phase1Result {
   architect: AgentResponse;
   pragmatist: AgentResponse;
@@ -131,6 +165,8 @@ export interface Phase2Result {
   divergences: Divergence[];
   humanDecision: string;
   humanDecisionStructured?: HumanDecisionStructured;
+  executionBrief?: ExecutionBrief;
+  actionBrief?: ExecutionBrief;
 }
 
 export interface AttackReportItem {
@@ -280,26 +316,38 @@ export interface CliOnboardingStatus {
 
 export interface FrictionSession {
   id: string;
+  title?: string;
+  status?: SessionStatus;
+  updated_at?: string;
+  problem_statement?: string;
   requirement: string;
   agents: string[];
-  phase1: {
+  conversation_items?: ConversationItem[];
+  working_state?: SessionWorkingState;
+  phase1?: {
     interpretations: AgentResponse[];
     divergences: Divergence[];
     human_clarifications: string;
   };
-  phase2: {
+  phase2?: {
     plans: AgentPlan[];
     divergences: Divergence[];
     human_decision: string;
     human_decision_structured?: HumanDecisionStructured;
+    execution_brief?: ExecutionBrief;
+    action_brief?: ExecutionBrief;
   };
-  phase3: {
+  phase3?: {
     code_a: string;
     code_b: string;
     attack_report: AttackReportItem[];
     confidence_score: number;
     adr_path?: string;
     adr_markdown?: string;
+  };
+  result?: {
+    action_brief?: ExecutionBrief;
+    execution_brief?: ExecutionBrief;
   };
   metadata: {
     timestamp: string;
@@ -340,10 +388,13 @@ export interface LLMAgent {
 export interface SessionSummary {
   id: string;
   createdAt: string;
+  updatedAt: string;
+  status: SessionStatus;
+  title: string;
   domain: string;
   complexity: Complexity;
   consentedToDataset: boolean;
-  requirementPreview: string;
+  problemPreview: string;
 }
 
 export interface WorktreeLayout {
@@ -360,7 +411,7 @@ export interface DatasetExportResult {
   count: number;
 }
 
-export type JudgeProvider = "haiku" | "flash" | "ollama";
+export type JudgeProvider = "haiku" | "flash" | "ollama" | "opencode";
 
 export interface Phase3RunInput {
   repoPath: string;
@@ -384,11 +435,17 @@ export interface RouteState {
 
 export type WorkflowStep =
   | "requirement"
-  | "clarifications"
-  | "decision"
-  | "phase3_config"
-  | "phase3_run"
-  | "completed";
+  | "friction"
+  | "brief"
+  | "phase3_run";
+
+export type SessionStatus =
+  | "draft"
+  | "analyzing"
+  | "friction"
+  | "brief_ready"
+  | "proof_running"
+  | "proof_ready";
 
 export interface ConversationMetaPayload {
   step: WorkflowStep;
@@ -442,6 +499,12 @@ export interface ConversationDecisionPhase2Payload {
   meta: ConversationMetaPayload;
 }
 
+export interface ConversationExecutionBriefPayload {
+  phase: 2;
+  brief: ExecutionBrief;
+  meta: ConversationMetaPayload;
+}
+
 export interface ConversationValidatePhase3Payload {
   phase: 3;
   meta: ConversationMetaPayload;
@@ -473,6 +536,7 @@ export type ConversationPayload =
   | ConversationFrictionPhase1Payload
   | ConversationFrictionInboxPayload
   | ConversationDecisionPhase2Payload
+  | ConversationExecutionBriefPayload
   | ConversationValidatePhase3Payload
   | ConversationWorkflowDonePayload
   | ConversationToolPayload
@@ -527,6 +591,11 @@ export type ConversationItem =
     }
   | {
       id: string;
+      type: "execution_brief";
+      payload: ConversationExecutionBriefPayload;
+    }
+  | {
+      id: string;
       type: "validate_phase3";
       payload: ConversationValidatePhase3Payload;
     }
@@ -553,8 +622,23 @@ export interface FrictionResolutionDraft {
 
 export interface FrictionInboxDraft {
   direction?: FrictionResolutionChoice;
+  contextNote: string;
   resolutions: FrictionResolutionDraft[];
   status: "draft" | "ready" | "submitted";
+}
+
+export interface ProofModeWorkingState {
+  open: boolean;
+  repoPath: string;
+  baseBranch: string;
+  consentedToDataset: boolean;
+}
+
+export interface SessionWorkingState {
+  composerText: string;
+  currentStep: WorkflowStep;
+  frictionDraft?: FrictionInboxDraft | null;
+  proofMode?: ProofModeWorkingState | null;
 }
 
 export interface UnsavedState {

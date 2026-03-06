@@ -5,29 +5,27 @@ interface TaskRailProps {
 }
 
 const STEPS: { key: WorkflowStep; label: string; short: string }[] = [
-  { key: "requirement", label: "Requirement", short: "1" },
-  { key: "clarifications", label: "Clarify", short: "2" },
-  { key: "decision", label: "Decision", short: "3" },
-  { key: "phase3_config", label: "Validate", short: "4" },
-  { key: "completed", label: "Done", short: "✓" },
+  { key: "requirement", label: "Problem", short: "1" },
+  { key: "friction", label: "Friction", short: "2" },
+  { key: "brief", label: "Brief", short: "3" },
 ];
 
 const STEP_ORDER: WorkflowStep[] = [
   "requirement",
-  "clarifications",
-  "decision",
-  "phase3_config",
-  "phase3_run",
-  "completed",
+  "friction",
+  "brief",
 ];
 
 function stepIndex(step: WorkflowStep): number {
+  if (step === "phase3_run") {
+    return STEP_ORDER.indexOf("brief");
+  }
   return STEP_ORDER.indexOf(step);
 }
 
 export function TaskRail({ currentStep }: TaskRailProps) {
   const currentIndex = stepIndex(currentStep);
-  const isCompleted = currentStep === "completed";
+  const isCompleted = currentStep === "brief";
 
   return (
     <nav className="task-rail" aria-label="Workflow progress">
@@ -37,7 +35,7 @@ export function TaskRail({ currentStep }: TaskRailProps) {
           const isDone = isCompleted || stepIdx < currentIndex;
           const isCurrent =
             step.key === currentStep ||
-            (currentStep === "phase3_run" && step.key === "phase3_config");
+            (currentStep === "phase3_run" && step.key === "brief");
           const isPending = !isDone && !isCurrent;
 
           return (

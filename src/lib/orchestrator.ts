@@ -6,20 +6,26 @@ import type {
   CliAliasModelInventory,
   CliModelInventorySource,
   CliResolutionDiagnostic,
+  ConversationItem,
   DatasetExportResult,
+  ExecutionBrief,
+  FrictionInboxDraft,
   FrictionSession,
   Phase12RuntimeDiagnostic,
   Phase1Result,
   Phase2Result,
   Phase3Result,
   Phase3RunInput,
+  SessionStatus,
+  SessionWorkingState,
   RuntimeSettings,
-  SessionSummary
+  SessionSummary,
+  WorkflowStep
 } from "./types";
 
 const LOCAL_SESSIONS_KEY = "friction.sessions";
-const SESSION_SCHEMA_VERSION = "friction.session.v1";
-const WORKFLOW_MODE_CORE = "phase1-phase2-core-v1";
+const SESSION_SCHEMA_VERSION = "friction.session.v2";
+const WORKFLOW_MODE_CORE = "problem-friction-brief-v2";
 const WORKFLOW_MODE_PHASE3 = "phase3-adversarial-single-code-v1";
 
 interface BackendPhase3Result {
@@ -236,52 +242,360 @@ export async function runPhase3Preview(requirement: string): Promise<Phase3Resul
   };
 }
 
-export function buildSessionExport(
-  requirement: string,
-  phase1: Phase1Result,
-  phase2: Phase2Result,
-  phase3: Phase3Result,
-  consentedToDataset: boolean,
-  runtimeSettings: RuntimeSettings,
-  appVersion: string
-): FrictionSession {
-  const workflowMode = phase3.workflowMode ?? WORKFLOW_MODE_CORE;
-  const phase1Interpretations =
-    phase1.agentResponses && phase1.agentResponses.length >= 2
-      ? phase1.agentResponses.map((item) => item.response)
-      : [phase1.architect, phase1.pragmatist];
-  const phase2Plans =
-    phase2.agentPlans && phase2.agentPlans.length >= 2
-      ? phase2.agentPlans.map((item) => item.plan)
-      : [phase2.architect, phase2.pragmatist];
+interface BuildSessionExportInput {
+  id?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  problemStatement: string;
+  requirement?: string;
+  workflowStep: WorkflowStep;
+  composerText?: string;
+  conversationItems?: ConversationItem[];
+  frictionInboxDraft?: FrictionInboxDraft | null;
+  proofMode?: SessionWorkingState["proofMode"];
+  phase1?: Phase1Result | null;
+  phase2?: Phase2Result | null;
+  phase3?: Phase3Result | null;
+  consentedToDataset: boolean;
+  runtimeSettings: RuntimeSettings;
+  appVersion: string;
+  status?: SessionStatus;
+}
+
+function withTrimmed(value: string | undefined | null): string {
+  return (value ?? "").trim();
+}
+
+function firstNonEmptyLine(value: string): string {
+  return (
+    value
+      .split(/\r?\n/)
+      .map((line) => withTrimmed(line))
+      .find((line) => line.length > 0) ?? ""
+  );
+}
+
+function truncate(value: string, max = 140): string {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max)}...`;
+}
+
+function normalizeLegacyPlan(plan: Partial<Phase2Result["architect"]> | undefined): Phase2Result["architect"] {
+  const stack = Array.isArray(plan?.stack) ? plan.stack.filter(Boolean) : [];
+  const phases = Array.isArray(plan?.phases) ? plan.phases : [];
+  const architecture = withTrimmed(plan?.architecture);
+  const tradeoffs = Array.isArray(plan?.tradeoffs) ? plan.tradeoffs.filter(Boolean) : [];
+  const warnings = Array.isArray(plan?.warnings) ? plan.warnings.filter(Boolean) : [];
+  const strategy = withTrimmed(plan?.strategy) || architecture || "No strategy captured.";
+  const nextSteps =
+    Array.isArray(plan?.nextSteps) && plan.nextSteps.length > 0
+      ? plan.nextSteps.filter(Boolean)
+      : phases.flatMap((phase) => phase.tasks.filter(Boolean));
+  const risks =
+    Array.isArray(plan?.risks) && plan.risks.length > 0
+      ? plan.risks.filter(Boolean)
+      : warnings;
+  const legacyProblemRead = withTrimmed((plan as { problemRead?: string } | undefined)?.problemRead);
+  const legacyMainHypothesis = withTrimmed(
+    (plan as { mainHypothesis?: string } | undefined)?.mainHypothesis,
+  );
+  const openQuestions = Array.isArray(plan?.openQuestions)
+    ? plan.openQuestions.filter(Boolean)
+    : [];
 
   return {
-    id: crypto.randomUUID(),
-    requirement,
-    agents: runtimeSettings.phase12Agents.map((agent) => `${agent.label}:cli:${agent.cli}`),
-    phase1: {
-      interpretations: phase1Interpretations,
-      divergences: phase1.divergences,
-      human_clarifications: phase1.humanClarifications
+    problemRead:
+      legacyProblemRead ||
+      (architecture
+        ? `Frames the problem through this approach: ${architecture}`
+        : "No explicit problem framing captured."),
+    mainHypothesis:
+      legacyMainHypothesis ||
+      tradeoffs[0] ||
+      risks[0] ||
+      strategy,
+    strategy,
+    tradeoffs,
+    nextSteps: nextSteps.slice(0, 6),
+    risks,
+    openQuestions,
+    stack,
+    phases,
+    architecture,
+    warnings,
+  };
+}
+
+function normalizeExecutionBrief(
+  brief: ExecutionBrief | undefined | null,
+  fallbackProblemFrame: string,
+): ExecutionBrief | undefined {
+  if (!brief) return undefined;
+  const legacySteps = Array.isArray((brief as { implementationSteps?: string[] }).implementationSteps)
+    ? ((brief as { implementationSteps?: string[] }).implementationSteps ?? []).filter(Boolean)
+    : [];
+  const nextSteps = Array.isArray(brief.nextSteps) && brief.nextSteps.length > 0
+    ? brief.nextSteps.filter(Boolean)
+    : legacySteps;
+  const openQuestions = Array.isArray(brief.openQuestions)
+    ? brief.openQuestions.filter(Boolean)
+    : [];
+
+  return {
+    ...brief,
+    problemFrame: withTrimmed(brief.problemFrame) || fallbackProblemFrame || "No problem framing captured.",
+    mainHypothesis:
+      withTrimmed(brief.mainHypothesis) ||
+      withTrimmed(brief.baselineApproach) ||
+      "No main hypothesis captured.",
+    acceptedTradeoffs: Array.isArray(brief.acceptedTradeoffs)
+      ? brief.acceptedTradeoffs.filter(Boolean)
+      : [],
+    nextSteps,
+    openRisks: Array.isArray(brief.openRisks) ? brief.openRisks.filter(Boolean) : [],
+    openQuestions,
+  };
+}
+
+function deriveSessionStatus(input: {
+  workflowStep: WorkflowStep;
+  phase1?: Phase1Result | null;
+  phase2?: Phase2Result | null;
+  phase3?: Phase3Result | null;
+  composerText?: string;
+  problemStatement: string;
+}): SessionStatus {
+  if (
+    input.phase3 &&
+    (withTrimmed(input.phase3.codeA) ||
+      withTrimmed(input.phase3.codeB) ||
+      input.phase3.attackReport.length > 0 ||
+      input.phase3.confidenceScore > 0)
+  ) {
+    return "proof_ready";
+  }
+  if (input.workflowStep === "phase3_run") {
+    return "proof_running";
+  }
+  if (input.phase2?.executionBrief || input.phase2?.actionBrief) {
+    return "brief_ready";
+  }
+  if (input.phase1) {
+    return "friction";
+  }
+  if (withTrimmed(input.problemStatement) || withTrimmed(input.composerText)) {
+    return "draft";
+  }
+  return "draft";
+}
+
+function deriveSessionTitle(problemStatement: string, brief?: ExecutionBrief): string {
+  const firstLine = firstNonEmptyLine(problemStatement);
+  if (firstLine) return truncate(firstLine, 80);
+  const decision = withTrimmed(brief?.finalDecision);
+  if (decision) return truncate(decision, 80);
+  return "Untitled draft";
+}
+
+function deriveProblemPreview(problemStatement: string, brief?: ExecutionBrief): string {
+  const trimmedProblem = withTrimmed(problemStatement);
+  if (trimmedProblem) return truncate(trimmedProblem, 140);
+  const briefSummary = withTrimmed(brief?.problemFrame) || withTrimmed(brief?.finalDecision);
+  if (briefSummary) return truncate(briefSummary, 140);
+  return "";
+}
+
+export function normalizeSessionRecord(session: FrictionSession): FrictionSession {
+  const problemStatement = withTrimmed(session.problem_statement) || withTrimmed(session.requirement);
+  const normalizedPhase2 = session.phase2
+    ? {
+        ...session.phase2,
+        plans: (session.phase2.plans ?? []).map((plan) => normalizeLegacyPlan(plan)),
+      }
+    : undefined;
+  const brief =
+    normalizeExecutionBrief(
+      session.result?.action_brief ??
+        session.result?.execution_brief ??
+        normalizedPhase2?.action_brief ??
+        normalizedPhase2?.execution_brief,
+      problemStatement,
+    ) ?? undefined;
+
+  if (normalizedPhase2) {
+    normalizedPhase2.execution_brief = brief ?? normalizedPhase2.execution_brief;
+    normalizedPhase2.action_brief = brief ?? normalizedPhase2.action_brief;
+  }
+
+  return {
+    ...session,
+    title: withTrimmed(session.title) || deriveSessionTitle(problemStatement, brief),
+    status:
+      session.status ??
+      deriveSessionStatus({
+        workflowStep:
+          session.working_state?.currentStep ?? (brief ? "brief" : session.phase1 ? "friction" : "requirement"),
+        phase1:
+          session.phase1 && session.phase1.interpretations.length >= 2
+            ? {
+                architect: session.phase1.interpretations[0],
+                pragmatist: session.phase1.interpretations[1],
+                divergences: session.phase1.divergences,
+                humanClarifications: session.phase1.human_clarifications,
+              }
+            : null,
+        phase2:
+          normalizedPhase2 && normalizedPhase2.plans.length >= 2
+            ? {
+                architect: normalizedPhase2.plans[0],
+                pragmatist: normalizedPhase2.plans[1],
+                divergences: normalizedPhase2.divergences,
+                humanDecision: normalizedPhase2.human_decision,
+                humanDecisionStructured: normalizedPhase2.human_decision_structured,
+                executionBrief: normalizedPhase2.execution_brief,
+                actionBrief: normalizedPhase2.action_brief,
+              }
+            : null,
+        phase3: session.phase3
+          ? {
+              codeA: session.phase3.code_a,
+              codeB: session.phase3.code_b,
+              attackReport: session.phase3.attack_report,
+              confidenceScore: session.phase3.confidence_score,
+              adrPath: session.phase3.adr_path,
+              adrMarkdown: session.phase3.adr_markdown,
+            }
+          : null,
+        problemStatement,
+        composerText: session.working_state?.composerText,
+      }),
+    updated_at:
+      withTrimmed(session.updated_at) || session.metadata.timestamp,
+    problem_statement: problemStatement,
+    requirement: problemStatement,
+    conversation_items: Array.isArray(session.conversation_items)
+      ? session.conversation_items
+      : [],
+    working_state: {
+      composerText: session.working_state?.composerText ?? "",
+      currentStep: session.working_state?.currentStep ?? (brief ? "brief" : session.phase1 ? "friction" : "requirement"),
+      frictionDraft: session.working_state?.frictionDraft ?? null,
+      proofMode: session.working_state?.proofMode ?? null,
     },
-    phase2: {
-      plans: phase2Plans,
-      divergences: phase2.divergences,
-      human_decision: phase2.humanDecision,
-      human_decision_structured: phase2.humanDecisionStructured
-    },
-    phase3: {
-      code_a: phase3.codeA,
-      code_b: phase3.codeB,
-      attack_report: phase3.attackReport,
-      confidence_score: phase3.confidenceScore,
-      adr_path: phase3.adrPath,
-      adr_markdown: phase3.adrMarkdown
+    phase2: normalizedPhase2,
+    result: {
+      action_brief: brief,
+      execution_brief: brief,
     },
     metadata: {
-      timestamp: new Date().toISOString(),
-      domain: inferDomain(requirement),
-      complexity: inferComplexity(requirement),
+      ...session.metadata,
+      schema_version: session.metadata.schema_version ?? SESSION_SCHEMA_VERSION,
+    },
+  };
+}
+
+export function buildSessionExport({
+  id,
+  createdAt,
+  updatedAt,
+  problemStatement,
+  requirement,
+  workflowStep,
+  composerText = "",
+  conversationItems = [],
+  frictionInboxDraft = null,
+  proofMode = null,
+  phase1 = null,
+  phase2 = null,
+  phase3 = null,
+  consentedToDataset,
+  runtimeSettings,
+  appVersion,
+  status,
+}: BuildSessionExportInput): FrictionSession {
+  const normalizedProblemStatement =
+    withTrimmed(problemStatement) || withTrimmed(requirement);
+  const normalizedPhase1 = phase1
+    ? {
+        interpretations:
+          phase1.agentResponses && phase1.agentResponses.length >= 2
+            ? phase1.agentResponses.map((item) => item.response)
+            : [phase1.architect, phase1.pragmatist].filter(Boolean),
+        divergences: phase1.divergences,
+        human_clarifications: phase1.humanClarifications,
+      }
+    : undefined;
+  const normalizedPhase2Plans = phase2
+    ? (
+        phase2.agentPlans && phase2.agentPlans.length >= 2
+          ? phase2.agentPlans.map((item) => item.plan)
+          : [phase2.architect, phase2.pragmatist]
+      ).map((plan) => normalizeLegacyPlan(plan))
+    : undefined;
+  const normalizedBrief = normalizeExecutionBrief(
+    phase2?.actionBrief ?? phase2?.executionBrief,
+    normalizedProblemStatement,
+  );
+  const normalizedPhase2 = phase2
+    ? {
+        plans: normalizedPhase2Plans ?? [],
+        divergences: phase2.divergences,
+        human_decision: phase2.humanDecision,
+        human_decision_structured: phase2.humanDecisionStructured,
+        execution_brief: normalizedBrief,
+        action_brief: normalizedBrief,
+      }
+    : undefined;
+  const normalizedPhase3 = phase3
+    ? {
+        code_a: phase3.codeA,
+        code_b: phase3.codeB,
+        attack_report: phase3.attackReport,
+        confidence_score: phase3.confidenceScore,
+        adr_path: phase3.adrPath,
+        adr_markdown: phase3.adrMarkdown,
+      }
+    : undefined;
+  const effectiveStatus =
+    status ??
+    deriveSessionStatus({
+      workflowStep,
+      phase1,
+      phase2,
+      phase3,
+      composerText,
+      problemStatement: normalizedProblemStatement,
+    });
+  const workflowMode = phase3?.workflowMode ?? WORKFLOW_MODE_CORE;
+  const safeCreatedAt = createdAt ?? new Date().toISOString();
+  const safeUpdatedAt = updatedAt ?? new Date().toISOString();
+
+  return normalizeSessionRecord({
+    id: id ?? crypto.randomUUID(),
+    title: deriveSessionTitle(normalizedProblemStatement, normalizedBrief),
+    status: effectiveStatus,
+    updated_at: safeUpdatedAt,
+    problem_statement: normalizedProblemStatement,
+    requirement: normalizedProblemStatement,
+    agents: runtimeSettings.phase12Agents.map((agent) => `${agent.label}:cli:${agent.cli}`),
+    conversation_items: conversationItems,
+    working_state: {
+      composerText,
+      currentStep: workflowStep,
+      frictionDraft: frictionInboxDraft,
+      proofMode,
+    },
+    phase1: normalizedPhase1,
+    phase2: normalizedPhase2,
+    phase3: normalizedPhase3,
+    result: {
+      action_brief: normalizedBrief,
+      execution_brief: normalizedBrief,
+    },
+    metadata: {
+      timestamp: safeCreatedAt,
+      domain: inferDomain(normalizedProblemStatement),
+      complexity: inferComplexity(normalizedProblemStatement),
       consented_to_dataset: consentedToDataset,
       schema_version: SESSION_SCHEMA_VERSION,
       app_version: appVersion,
@@ -298,24 +612,24 @@ export function buildSessionExport(
           model: runtimeSettings.judgeModel
         },
         ollama_host: runtimeSettings.ollamaHost,
-        // Legacy fields kept for compatibility with older readers.
         phase3_agent_a_cli: runtimeSettings.phase3AgentACli,
         phase3_reviewer_cli: runtimeSettings.phase3AgentBCli
       }
     }
-  };
+  });
 }
 
 export async function saveSessionRecord(session: FrictionSession): Promise<string> {
+  const normalized = normalizeSessionRecord(session);
   if (canUseTauriCommands()) {
-    return invokeCommand<string>("save_session", { record: session });
+    return invokeCommand<string>("save_session", { record: normalized });
   }
 
   const sessions = readLocalSessions();
-  const withoutCurrent = sessions.filter((item) => item.id !== session.id);
-  withoutCurrent.push(session);
+  const withoutCurrent = sessions.filter((item) => item.id !== normalized.id);
+  withoutCurrent.push(normalized);
   localStorage.setItem(LOCAL_SESSIONS_KEY, JSON.stringify(withoutCurrent));
-  return session.id;
+  return normalized.id;
 }
 
 export async function listSavedSessions(limit = 5): Promise<SessionSummary[]> {
@@ -324,15 +638,26 @@ export async function listSavedSessions(limit = 5): Promise<SessionSummary[]> {
   }
 
   return readLocalSessions()
-    .sort((a, b) => b.metadata.timestamp.localeCompare(a.metadata.timestamp))
+    .sort((a, b) => {
+      const left = withTrimmed(a.updated_at) || a.metadata.timestamp;
+      const right = withTrimmed(b.updated_at) || b.metadata.timestamp;
+      return right.localeCompare(left);
+    })
     .slice(0, limit)
     .map((session) => ({
       id: session.id,
       createdAt: session.metadata.timestamp,
+      updatedAt: withTrimmed(session.updated_at) || session.metadata.timestamp,
+      status: session.status ?? "draft",
+      title: withTrimmed(session.title) || deriveSessionTitle(session.problem_statement ?? session.requirement),
       domain: session.metadata.domain,
       complexity: session.metadata.complexity,
       consentedToDataset: session.metadata.consented_to_dataset,
-      requirementPreview: session.requirement.slice(0, 120)
+      problemPreview:
+        deriveProblemPreview(
+          session.problem_statement ?? session.requirement,
+          session.result?.action_brief ?? session.phase2?.action_brief ?? session.phase2?.execution_brief,
+        )
     }));
 }
 
@@ -390,11 +715,13 @@ export async function listCliModels(
 
 export async function loadSessionRecord(id: string): Promise<FrictionSession | null> {
   if (canUseTauriCommands()) {
-    return invokeCommand<FrictionSession | null>("load_session", { id });
+    const payload = await invokeCommand<FrictionSession | null>("load_session", { id });
+    return payload ? normalizeSessionRecord(payload) : null;
   }
 
   const sessions = readLocalSessions();
-  return sessions.find((session) => session.id === id) ?? null;
+  const session = sessions.find((entry) => entry.id === id) ?? null;
+  return session ? normalizeSessionRecord(session) : null;
 }
 
 export async function exportConsentedDataset(
@@ -430,7 +757,7 @@ function readLocalSessions(): FrictionSession[] {
     if (!raw) return [];
 
     const parsed = JSON.parse(raw) as FrictionSession[];
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) ? parsed.map((session) => normalizeSessionRecord(session)) : [];
   } catch {
     return [];
   }

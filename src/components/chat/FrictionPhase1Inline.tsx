@@ -6,15 +6,18 @@ import type {
   FrictionResolutionChoice,
   Phase1Result,
   PhaseAgentResponse,
+  TopDisagreement,
 } from "@/lib/types";
 import { FrictionInboxCard } from "./FrictionInboxCard";
 
 interface FrictionPhase1InlineProps {
   phase1: Phase1Result;
+  topDisagreements: TopDisagreement[];
   agents: PhaseAgentResponse[];
   draft: FrictionInboxDraft;
   submitting?: boolean;
   onDirectionChange: (direction?: FrictionResolutionChoice) => void;
+  onContextNoteChange: (value: string) => void;
   onResolutionChange: (
     key: string,
     patch: Partial<{ choice: FrictionResolutionChoice; rationale: string }>,
@@ -25,6 +28,16 @@ interface FrictionPhase1InlineProps {
 function summarizeList(items?: string[]): string {
   if (!items?.length) return "";
   return items.slice(0, 3).join(", ");
+}
+
+function fieldLabel(field: string): string {
+  const normalized = field.trim().toLowerCase();
+  if (normalized === "interpretation") return "problem framing";
+  if (normalized === "assumptions") return "scope assumptions";
+  if (normalized === "risks") return "risk framing";
+  if (normalized === "questions") return "open questions";
+  if (normalized === "approach") return "investigation strategy";
+  return field.replace(/_/g, " ");
 }
 
 function summarizeAgentValue(divergence: Divergence, agentId: string, label: string): string {
@@ -64,27 +77,30 @@ function pickAgentSnippet(
 
 export function FrictionPhase1Inline({
   phase1,
+  topDisagreements,
   agents,
   draft,
   submitting = false,
   onDirectionChange,
+  onContextNoteChange,
   onResolutionChange,
   onSubmit,
 }: FrictionPhase1InlineProps) {
   const [isInterpretationOpen, setIsInterpretationOpen] = useState(false);
+  const hiddenCount = Math.max(phase1.divergences.length - topDisagreements.length, 0);
 
   const interpretationRows = useMemo(
     () =>
-      phase1.divergences.map((divergence, index) => ({
-        key: `${divergence.field}:${index}`,
-        title: `${index + 1}. ${divergence.field}`,
+      topDisagreements.map((item) => ({
+        key: item.key,
+        title: `${item.rank + 1}. ${fieldLabel(item.field)}`,
         snippets: agents.map((agent, agentIndex) => ({
           agentId: agent.id,
           label: agent.label,
-          text: pickAgentSnippet(divergence, agent, agentIndex),
+          text: pickAgentSnippet(item.divergence, agent, agentIndex),
         })),
       })),
-    [agents, phase1.divergences],
+    [agents, topDisagreements],
   );
 
   return (
@@ -100,8 +116,11 @@ export function FrictionPhase1Inline({
             Phase 1 — Multi-agent interpretation
           </p>
           <p className="friction-inline-interpretation-subtitle">
-            {phase1.divergences.length} friction point
-            {phase1.divergences.length !== 1 ? "s" : ""} · {agents.length} agent
+            {topDisagreements.length} top disagreement
+            {topDisagreements.length !== 1 ? "s" : ""} shown
+            {hiddenCount > 0 ? ` · ${hiddenCount} hidden` : ""}
+            {" · "}
+            {agents.length} agent
             {agents.length > 1 ? "s" : ""}
           </p>
         </div>
@@ -139,10 +158,12 @@ export function FrictionPhase1Inline({
 
       <FrictionInboxCard
         phase1={phase1}
+        topDisagreements={topDisagreements}
         agents={agents}
         draft={draft}
         submitting={submitting}
         onDirectionChange={onDirectionChange}
+        onContextNoteChange={onContextNoteChange}
         onResolutionChange={onResolutionChange}
         onSubmit={onSubmit}
       />

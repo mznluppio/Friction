@@ -1043,6 +1043,33 @@ kbd {
     border-color: var(--friction-text);
   }
 
+  [data-theme=dark] .prompt-card:focus-within {
+    border-color: var(--friction-muted);
+  }
+
+  /* Prevent white border on standard InputGroup in dark mode */
+  [data-theme=dark] [data-slot="input-group"],
+  [data-theme=dark] [data-slot="input-group"]:focus,
+  [data-theme=dark] [data-slot="input-group"]:focus-within,
+  [data-theme=dark] [data-slot="input-group"]:focus-visible,
+  [data-theme=dark] [data-slot="input-group-control"]:focus,
+  [data-theme=dark] [data-slot="input-group-control"]:focus-within,
+  [data-theme=dark] [data-slot="input-group-control"]:focus-visible {
+    border-color: var(--friction-border) !important;
+    box-shadow: none !important;
+    outline: none !important;
+    --tw-ring-color: transparent !important;
+    --tw-ring-shadow: none !important;
+  }
+
+  /* Global catch-all for any focused element in dark mode that might show a white ring/border */
+  [data-theme=dark] *:focus,
+  [data-theme=dark] *:focus-within,
+  [data-theme=dark] *:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
   .prompt-card-textarea {
     display: block;
     width: 100%;

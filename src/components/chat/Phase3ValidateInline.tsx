@@ -25,9 +25,9 @@ export function Phase3ValidateInline({
 }: Phase3ValidateInlineProps) {
   return (
     <section className="workflow-inline-block">
-      <p className="workflow-inline-title">Phase 3 — Validate & run</p>
+      <p className="workflow-inline-title">Proof mode</p>
       <p className="workflow-inline-subtitle">
-        Configure repository settings, then launch adversarial validation.
+        Stress-test the chosen direction on a real repo only when you need proof.
       </p>
 
       <div className="chat-config-grid">
@@ -85,7 +85,7 @@ export function Phase3ValidateInline({
           ) : (
             <>
               <Play className="h-4 w-4" aria-hidden="true" />
-              Run Phase 3
+              Run proof mode
             </>
           )}
         </button>
@@ -93,4 +93,3 @@ export function Phase3ValidateInline({
     </section>
   );
 }
-

@@ -16,7 +16,7 @@ export function DecisionPhase2Inline({
     <section className="workflow-inline-block">
       <p className="workflow-inline-title">Phase 2 — Arbitration decision</p>
       <p className="workflow-inline-subtitle">
-        Rate plans, choose winner/hybrid, then apply the decision inline.
+        Keep one plan, or do a light merge, then apply the decision inline.
       </p>
       <MultiPlanArbitrationCard
         plans={plans}
@@ -26,4 +26,3 @@ export function DecisionPhase2Inline({
     </section>
   );
 }
-

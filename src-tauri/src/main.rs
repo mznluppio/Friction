@@ -349,25 +349,31 @@ fn build_phase2_divergences(plans: &[NamedAgentPlan]) -> Vec<Divergence> {
     }
 
     let mut divergences = Vec::new();
-    let stack_values = plans
-        .iter()
-        .map(|item| (item.id.clone(), item.label.clone(), item.plan.stack.clone()))
-        .collect::<Vec<_>>();
-    if let Some(div) = compare_list_consensus("stack", &stack_values) {
-        divergences.push(div);
-    }
-
-    let architecture_values = plans
+    let hypothesis_values = plans
         .iter()
         .map(|item| {
             (
                 item.id.clone(),
                 item.label.clone(),
-                item.plan.architecture.clone(),
+                item.plan.main_hypothesis.clone(),
             )
         })
         .collect::<Vec<_>>();
-    if let Some(div) = compare_string_consensus("architecture", &architecture_values) {
+    if let Some(div) = compare_string_consensus("hypothesis", &hypothesis_values) {
+        divergences.push(div);
+    }
+
+    let strategy_values = plans
+        .iter()
+        .map(|item| {
+            (
+                item.id.clone(),
+                item.label.clone(),
+                item.plan.strategy.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    if let Some(div) = compare_string_consensus("investigation_strategy", &strategy_values) {
         divergences.push(div);
     }
 
@@ -385,17 +391,45 @@ fn build_phase2_divergences(plans: &[NamedAgentPlan]) -> Vec<Divergence> {
         divergences.push(div);
     }
 
-    let warnings_values = plans
+    let risks_values = plans
         .iter()
         .map(|item| {
             (
                 item.id.clone(),
                 item.label.clone(),
-                item.plan.warnings.clone(),
+                item.plan.risks.clone(),
             )
         })
         .collect::<Vec<_>>();
-    if let Some(div) = compare_list_consensus("warnings", &warnings_values) {
+    if let Some(div) = compare_list_consensus("risk_framing", &risks_values) {
+        divergences.push(div);
+    }
+
+    let next_steps_values = plans
+        .iter()
+        .map(|item| {
+            (
+                item.id.clone(),
+                item.label.clone(),
+                item.plan.next_steps.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    if let Some(div) = compare_list_consensus("next_step", &next_steps_values) {
+        divergences.push(div);
+    }
+
+    let open_questions_values = plans
+        .iter()
+        .map(|item| {
+            (
+                item.id.clone(),
+                item.label.clone(),
+                item.plan.open_questions.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    if let Some(div) = compare_list_consensus("open_questions", &open_questions_values) {
         divergences.push(div);
     }
 
@@ -796,11 +830,15 @@ async fn run_phase2_impl(
 
     let divergences = if legacy_mode {
         let mut items = Vec::new();
-        if let Some(div) = legacy_pair_divergence_list("stack", &arch.stack, &prag.stack) {
+        if let Some(div) = legacy_pair_divergence_string(
+            "hypothesis",
+            &arch.main_hypothesis,
+            &prag.main_hypothesis,
+        ) {
             items.push(div);
         }
         if let Some(div) =
-            legacy_pair_divergence_string("architecture", &arch.architecture, &prag.architecture)
+            legacy_pair_divergence_string("investigation_strategy", &arch.strategy, &prag.strategy)
         {
             items.push(div);
         }
@@ -809,7 +847,20 @@ async fn run_phase2_impl(
         {
             items.push(div);
         }
-        if let Some(div) = legacy_pair_divergence_list("warnings", &arch.warnings, &prag.warnings) {
+        if let Some(div) = legacy_pair_divergence_list("risk_framing", &arch.risks, &prag.risks)
+        {
+            items.push(div);
+        }
+        if let Some(div) =
+            legacy_pair_divergence_list("next_step", &arch.next_steps, &prag.next_steps)
+        {
+            items.push(div);
+        }
+        if let Some(div) = legacy_pair_divergence_list(
+            "open_questions",
+            &arch.open_questions,
+            &prag.open_questions,
+        ) {
             items.push(div);
         }
         items
@@ -828,6 +879,8 @@ async fn run_phase2_impl(
         divergences,
         human_decision: String::new(),
         human_decision_structured: None,
+        execution_brief: None,
+        action_brief: None,
     })
 }
 
@@ -3449,6 +3502,15 @@ exit 42
                 label: "Agent A".to_string(),
                 cli: "claude".to_string(),
                 plan: session::AgentPlan {
+                    problem_read: "Frame around root-cause analysis.".to_string(),
+                    main_hypothesis: "The failure is caused by a shared backend path.".to_string(),
+                    strategy: "Start from reproduction and evidence collection.".to_string(),
+                    next_steps: vec![
+                        "reproduce issue".to_string(),
+                        "inspect server logs".to_string(),
+                    ],
+                    risks: vec!["monitor".to_string()],
+                    open_questions: vec![],
                     stack: vec!["rust".to_string(), "tauri".to_string()],
                     phases: vec![],
                     architecture: "local app".to_string(),
@@ -3461,6 +3523,15 @@ exit 42
                 label: "Agent B".to_string(),
                 cli: "codex".to_string(),
                 plan: session::AgentPlan {
+                    problem_read: "Frame around root-cause analysis.".to_string(),
+                    main_hypothesis: "The failure is caused by a shared backend path.".to_string(),
+                    strategy: "Start from reproduction and evidence collection.".to_string(),
+                    next_steps: vec![
+                        "reproduce issue".to_string(),
+                        "inspect server logs".to_string(),
+                    ],
+                    risks: vec!["monitor".to_string()],
+                    open_questions: vec![],
                     stack: vec!["rust".to_string(), "tauri".to_string()],
                     phases: vec![],
                     architecture: "local app".to_string(),
@@ -3473,6 +3544,15 @@ exit 42
                 label: "Agent C".to_string(),
                 cli: "gemini".to_string(),
                 plan: session::AgentPlan {
+                    problem_read: "Frame around a narrower UI symptom.".to_string(),
+                    main_hypothesis: "The failure is partly frontend-specific.".to_string(),
+                    strategy: "Reproduce first, then inspect a different evidence stream.".to_string(),
+                    next_steps: vec![
+                        "reproduce issue".to_string(),
+                        "inspect frontend telemetry".to_string(),
+                    ],
+                    risks: vec!["monitor".to_string()],
+                    open_questions: vec![],
                     stack: vec!["rust".to_string(), "react".to_string()],
                     phases: vec![],
                     architecture: "local app".to_string(),
@@ -3485,6 +3565,15 @@ exit 42
                 label: "Agent D".to_string(),
                 cli: "claude".to_string(),
                 plan: session::AgentPlan {
+                    problem_read: "Frame around immediate containment.".to_string(),
+                    main_hypothesis: "The first move should be rollback-oriented.".to_string(),
+                    strategy: "Contain blast radius before deeper analysis.".to_string(),
+                    next_steps: vec![
+                        "contain blast radius".to_string(),
+                        "prepare rollback".to_string(),
+                    ],
+                    risks: vec!["monitor".to_string()],
+                    open_questions: vec![],
                     stack: vec!["go".to_string(), "k8s".to_string()],
                     phases: vec![],
                     architecture: "local app".to_string(),
@@ -3495,25 +3584,25 @@ exit 42
         ];
 
         let divergences = build_phase2_divergences(&plans);
-        let stack = divergences
+        let next_step = divergences
             .iter()
-            .find(|item| item.field == "stack")
-            .expect("stack divergence should exist");
+            .find(|item| item.field == "next_step")
+            .expect("next-step divergence should exist");
 
-        assert_eq!(stack.mode.as_deref(), Some("consensus"));
-        assert!(stack
+        assert_eq!(next_step.mode.as_deref(), Some("consensus"));
+        assert!(next_step
             .consensus_items
             .as_ref()
             .expect("consensus items")
-            .contains(&"rust".to_string()));
-        assert!(stack
+            .contains(&"reproduce issue".to_string()));
+        assert!(next_step
             .consensus_items
             .as_ref()
             .expect("consensus items")
-            .contains(&"tauri".to_string()));
-        assert_eq!(stack.severity, "medium");
+            .contains(&"inspect server logs".to_string()));
+        assert_eq!(next_step.severity, "medium");
 
-        let outliers = stack
+        let outliers = next_step
             .outlier_agent_ids
             .as_ref()
             .expect("outlier ids should exist");
@@ -3521,7 +3610,7 @@ exit 42
         assert!(outliers.contains(&"agent_c".to_string()));
         assert!(outliers.contains(&"agent_d".to_string()));
 
-        let values = stack
+        let values = next_step
             .agent_values
             .as_ref()
             .expect("agent values should exist");

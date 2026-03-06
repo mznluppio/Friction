@@ -144,6 +144,36 @@ function parseAgentPlan(raw: string): AgentPlan {
   }
 
   return {
+    problemRead:
+      typeof (parsed as { problemRead?: string; problem_read?: string }).problemRead === "string" &&
+      (parsed as { problemRead?: string }).problemRead?.trim()
+        ? (parsed as { problemRead: string }).problemRead
+        : typeof (parsed as { problem_read?: string }).problem_read === "string" &&
+            (parsed as { problem_read: string }).problem_read.trim()
+          ? (parsed as { problem_read: string }).problem_read
+          : "",
+    mainHypothesis:
+      typeof (parsed as { mainHypothesis?: string; main_hypothesis?: string }).mainHypothesis === "string" &&
+      (parsed as { mainHypothesis?: string }).mainHypothesis?.trim()
+        ? (parsed as { mainHypothesis: string }).mainHypothesis
+        : typeof (parsed as { main_hypothesis?: string }).main_hypothesis === "string" &&
+            (parsed as { main_hypothesis: string }).main_hypothesis.trim()
+          ? (parsed as { main_hypothesis: string }).main_hypothesis
+          : "",
+    strategy: typeof parsed.strategy === "string" && parsed.strategy.trim() ? parsed.strategy : "",
+    nextSteps:
+      Array.isArray((parsed as { nextSteps?: unknown[] }).nextSteps)
+        ? (parsed as { nextSteps: unknown[] }).nextSteps.map(String)
+        : Array.isArray((parsed as { next_steps?: unknown[] }).next_steps)
+          ? (parsed as { next_steps: unknown[] }).next_steps.map(String)
+          : [],
+    risks: Array.isArray(parsed.risks) ? parsed.risks.map(String) : [],
+    openQuestions:
+      Array.isArray((parsed as { openQuestions?: unknown[] }).openQuestions)
+        ? (parsed as { openQuestions: unknown[] }).openQuestions.map(String)
+        : Array.isArray((parsed as { open_questions?: unknown[] }).open_questions)
+          ? (parsed as { open_questions: unknown[] }).open_questions.map(String)
+          : [],
     stack: Array.isArray(parsed.stack) ? parsed.stack.map(String) : [],
     phases: Array.isArray(parsed.phases)
       ? parsed.phases.map((p) => ({

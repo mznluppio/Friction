@@ -172,6 +172,25 @@ export class MockArchitectAgent extends BaseMockAgent {
     const domain = inferDomain(requirement);
 
     return {
+      problemRead:
+        "Treat the problem as a product decision that needs explicit framing before action.",
+      mainHypothesis:
+        "Better framing and tighter constraints will reduce downstream disagreement cost.",
+      strategy:
+        "Stabilize the framing first, then pick a small set of high-leverage moves with explicit tradeoffs.",
+      nextSteps: [
+        "Clarify success criteria and non-negotiable constraints.",
+        "Choose the most defensible baseline direction.",
+        "Run one proof step to validate the choice."
+      ],
+      risks: [
+        "Implicit constraints may still change the recommended direction.",
+        "Operational cost may be underestimated if proof is skipped."
+      ],
+      openQuestions: [
+        "What must be true for this direction to count as successful?",
+        "Which failure mode is least acceptable?"
+      ],
       stack: this.stackForDomain(domain, ["Tauri", "Rust commands", "SQLite"]),
       phases: buildPhases(this.bias, domain, clarifications),
       architecture:
@@ -226,6 +245,24 @@ export class MockPragmatistAgent extends BaseMockAgent {
     const domain = inferDomain(requirement);
 
     return {
+      problemRead:
+        "Treat the problem as something to unblock quickly with the smallest useful next move.",
+      mainHypothesis:
+        "A narrow first move plus fast feedback will outperform a broad upfront design.",
+      strategy:
+        "Pick the shortest action that reduces uncertainty now, then iterate from evidence.",
+      nextSteps: [
+        "Define the smallest meaningful test or action.",
+        "Execute it and observe what changes.",
+        "Keep only the follow-up work justified by evidence."
+      ],
+      risks: [
+        "Fast moves can hide systemic issues if rollback is not considered.",
+        "A narrow scope can miss a deeper root cause."
+      ],
+      openQuestions: [
+        "What is the minimum proof needed before committing more time?"
+      ],
       stack: this.stackForDomain(domain, ["Tauri", "Tailwind", "shadcn-style UI"]),
       phases: buildPhases(this.bias, domain, clarifications),
       architecture:

@@ -21,9 +21,9 @@ export function WorkflowDoneInline({
 }: WorkflowDoneInlineProps) {
   return (
     <section className="workflow-inline-block">
-      <p className="workflow-inline-title">Workflow done</p>
+      <p className="workflow-inline-title">Decision locked</p>
       <p className="workflow-inline-subtitle">
-        Save or export this run, then start a new thread when ready.
+        Save or export this run now. Repo validation is optional.
       </p>
       <div className="workflow-inline-actions">
         <button
@@ -64,4 +64,3 @@ export function WorkflowDoneInline({
     </section>
   );
 }
-

@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -26,6 +27,16 @@ pub struct PlanPhase {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AgentPlan {
+    #[serde(rename = "problemRead", alias = "problem_read")]
+    pub problem_read: String,
+    #[serde(rename = "mainHypothesis", alias = "main_hypothesis")]
+    pub main_hypothesis: String,
+    pub strategy: String,
+    #[serde(rename = "nextSteps", alias = "next_steps")]
+    pub next_steps: Vec<String>,
+    pub risks: Vec<String>,
+    #[serde(rename = "openQuestions", alias = "open_questions")]
+    pub open_questions: Vec<String>,
     pub stack: Vec<String>,
     pub phases: Vec<PlanPhase>,
     pub architecture: String,
@@ -109,6 +120,10 @@ pub struct Phase2Output {
     pub human_decision: String,
     #[serde(default)]
     pub human_decision_structured: Option<HumanDecisionStructured>,
+    #[serde(default)]
+    pub execution_brief: Option<ExecutionBrief>,
+    #[serde(default)]
+    pub action_brief: Option<ExecutionBrief>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -137,29 +152,56 @@ pub struct AttackReportItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionRecord {
+    #[serde(default)]
     pub id: Uuid,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+    #[serde(default)]
+    pub problem_statement: Option<String>,
+    #[serde(default)]
     pub requirement: String,
+    #[serde(default)]
     pub agents: Vec<String>,
-    pub phase1: Phase1Log,
-    pub phase2: Phase2Log,
-    pub phase3: Phase3Log,
+    #[serde(default)]
+    pub conversation_items: Vec<Value>,
+    #[serde(default)]
+    pub working_state: Option<SessionWorkingState>,
+    #[serde(default)]
+    pub phase1: Option<Phase1Log>,
+    #[serde(default)]
+    pub phase2: Option<Phase2Log>,
+    #[serde(default)]
+    pub phase3: Option<Phase3Log>,
+    #[serde(default)]
+    pub result: Option<SessionResult>,
+    #[serde(default)]
     pub metadata: SessionMetadata,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Phase1Log {
     pub interpretations: Vec<AgentResponse>,
     pub divergences: Vec<Divergence>,
     pub human_clarifications: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Phase2Log {
     pub plans: Vec<AgentPlan>,
     pub divergences: Vec<Divergence>,
     pub human_decision: String,
     #[serde(default)]
     pub human_decision_structured: Option<HumanDecisionStructured>,
+    #[serde(default)]
+    pub execution_brief: Option<ExecutionBrief>,
+    #[serde(default)]
+    pub action_brief: Option<ExecutionBrief>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -197,7 +239,8 @@ pub struct HumanDecisionScoreRow {
     pub total: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Phase3Log {
     pub code_a: String,
     pub code_b: String,
@@ -209,7 +252,8 @@ pub struct Phase3Log {
     pub adr_markdown: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SessionMetadata {
     pub timestamp: DateTime<Utc>,
     pub domain: String,
@@ -225,7 +269,8 @@ pub struct SessionMetadata {
     pub runtime: Option<RuntimeMetadata>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct RuntimeMetadata {
     pub prompt_bundle_version: String,
     #[serde(default)]
@@ -247,23 +292,108 @@ pub struct RuntimeMetadata {
     pub phase3_reviewer_cli: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct RuntimeAgentMetadata {
     pub provider: String,
     pub model: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct RuntimeJudgeMetadata {
     pub provider: String,
     pub model: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct RuntimePhaseAgentMetadata {
     pub id: String,
     pub label: String,
     pub cli: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecutionBrief {
+    pub mode: String,
+    pub problem_frame: String,
+    pub final_decision: String,
+    pub baseline_agent_id: String,
+    pub baseline_label: String,
+    pub baseline_approach: String,
+    pub main_hypothesis: String,
+    pub accepted_tradeoffs: Vec<String>,
+    pub constraints: String,
+    pub next_steps: Vec<String>,
+    pub open_risks: Vec<String>,
+    pub open_questions: Vec<String>,
+    #[serde(default)]
+    pub merge_note: Option<String>,
+    #[serde(default)]
+    pub borrowed_agent_id: Option<String>,
+    #[serde(default)]
+    pub borrowed_label: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrictionResolutionDraft {
+    pub key: String,
+    pub field: String,
+    pub severity: String,
+    #[serde(default)]
+    pub choice: Option<String>,
+    #[serde(default)]
+    pub rationale: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrictionInboxDraft {
+    #[serde(default)]
+    pub direction: Option<String>,
+    #[serde(default)]
+    pub context_note: String,
+    #[serde(default)]
+    pub resolutions: Vec<FrictionResolutionDraft>,
+    #[serde(default)]
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProofModeWorkingState {
+    pub open: bool,
+    #[serde(default)]
+    pub repo_path: String,
+    #[serde(default)]
+    pub base_branch: String,
+    #[serde(default)]
+    pub consented_to_dataset: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionWorkingState {
+    #[serde(default)]
+    pub composer_text: String,
+    #[serde(default)]
+    pub current_step: String,
+    #[serde(default)]
+    pub friction_draft: Option<FrictionInboxDraft>,
+    #[serde(default)]
+    pub proof_mode: Option<ProofModeWorkingState>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionResult {
+    #[serde(default)]
+    pub action_brief: Option<ExecutionBrief>,
+    #[serde(default)]
+    pub execution_brief: Option<ExecutionBrief>,
 }
 
 impl SessionRecord {

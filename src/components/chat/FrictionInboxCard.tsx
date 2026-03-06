@@ -6,17 +6,22 @@ import type {
   FrictionResolutionChoice,
   PhaseAgentResponse,
   Phase1Result,
+  TopDisagreement,
 } from "@/lib/types";
-
-const MIN_RATIONALE_LENGTH = 12;
-
-function frictionKey(divergence: Divergence, index: number): string {
-  return `${divergence.field}:${index}`;
-}
 
 function summarizeList(items?: string[]): string {
   if (!items?.length) return "";
   return items.slice(0, 3).join(", ");
+}
+
+function fieldLabel(field: string): string {
+  const normalized = field.trim().toLowerCase();
+  if (normalized === "interpretation") return "problem framing";
+  if (normalized === "assumptions") return "scope assumptions";
+  if (normalized === "risks") return "risk framing";
+  if (normalized === "questions") return "open questions";
+  if (normalized === "approach") return "investigation strategy";
+  return field.replace(/_/g, " ");
 }
 
 function summarizeAgentValue(divergence: Divergence, agentId: string, label: string): string {
@@ -58,10 +63,6 @@ function pickAgentSnippet(
   return "No distinct signal.";
 }
 
-function normalizeRationale(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
-}
-
 function severityLabel(severity: Divergence["severity"]): string {
   if (severity === "high") return "High";
   if (severity === "medium") return "Medium";
@@ -70,10 +71,12 @@ function severityLabel(severity: Divergence["severity"]): string {
 
 interface FrictionInboxCardProps {
   phase1: Phase1Result;
+  topDisagreements: TopDisagreement[];
   agents: PhaseAgentResponse[];
   draft: FrictionInboxDraft;
   submitting?: boolean;
   onDirectionChange: (direction?: FrictionResolutionChoice) => void;
+  onContextNoteChange: (value: string) => void;
   onResolutionChange: (
     key: string,
     patch: Partial<{ choice: FrictionResolutionChoice; rationale: string }>,
@@ -83,17 +86,19 @@ interface FrictionInboxCardProps {
 
 export function FrictionInboxCard({
   phase1,
+  topDisagreements,
   agents,
   draft,
   submitting = false,
   onDirectionChange,
+  onContextNoteChange,
   onResolutionChange,
   onSubmit,
 }: FrictionInboxCardProps) {
-  const divergences = phase1.divergences ?? [];
   const [localDirection, setLocalDirection] = useState<FrictionResolutionChoice | undefined>(
     draft.direction,
   );
+  const [localContextNote, setLocalContextNote] = useState(draft.contextNote ?? "");
   const [localResolutions, setLocalResolutions] = useState<
     Record<string, { choice?: FrictionResolutionChoice; rationale: string }>
   >({});
@@ -103,17 +108,22 @@ export function FrictionInboxCard({
   >({});
   const [attemptedSubmit, setAttemptedSubmit] = useState(false);
   const prevResolvedRef = useRef<Record<string, boolean>>({});
+  const hiddenCount = Math.max(phase1.divergences.length - topDisagreements.length, 0);
 
   useEffect(() => {
     const nextDirection = draft.direction;
     setLocalDirection((previous) =>
       previous === nextDirection ? previous : nextDirection,
     );
+    const nextContextNote = draft.contextNote ?? "";
+    setLocalContextNote((previous) =>
+      previous === nextContextNote ? previous : nextContextNote,
+    );
 
     setLocalResolutions((previous) => {
       const next: Record<string, { choice?: FrictionResolutionChoice; rationale: string }> = {};
-      divergences.forEach((divergence, index) => {
-        const key = frictionKey(divergence, index);
+      topDisagreements.forEach((item) => {
+        const key = item.key;
         const existing = draft.resolutions.find((entry) => entry.key === key);
         next[key] = {
           choice: existing?.choice,
@@ -143,31 +153,30 @@ export function FrictionInboxCard({
 
       return previous;
     });
-  }, [draft.direction, draft.resolutions, divergences]);
+  }, [draft.contextNote, draft.direction, draft.resolutions, topDisagreements]);
 
   const rows = useMemo(
     () =>
-      divergences.map((divergence, index) => {
-        const key = frictionKey(divergence, index);
+      topDisagreements.map((item) => {
+        const divergence = item.divergence;
+        const key = item.key;
         const existing = draft.resolutions.find((entry) => entry.key === key);
         const local = localResolutions[key];
         const choice = local?.choice ?? existing?.choice;
         const rationale = local?.rationale ?? existing?.rationale ?? "";
-        const validRationale =
-          normalizeRationale(rationale).length >= MIN_RATIONALE_LENGTH;
         return {
           divergence,
-          index,
+          index: item.index,
+          rank: item.rank,
           key,
-          field: divergence.field,
+          field: fieldLabel(divergence.field),
           severity: divergence.severity,
           choice,
           rationale,
-          validRationale,
-          resolved: Boolean(choice) && validRationale,
+          resolved: Boolean(choice),
         };
       }),
-    [divergences, draft.resolutions, localResolutions],
+    [draft.resolutions, localResolutions, topDisagreements],
   );
 
   const invalidKeys = useMemo(
@@ -267,9 +276,10 @@ export function FrictionInboxCard({
     <section className="friction-inbox-card">
       <header className="friction-inbox-header">
         <div>
-          <p className="friction-inbox-title">Phase 1 — Resolve friction points</p>
+          <p className="friction-inbox-title">Phase 1 — Choose the disagreement path</p>
           <p className="friction-inbox-subtitle">
-            {resolvedCount}/{totalCount} resolved
+            {resolvedCount}/{totalCount} top disagreements resolved
+            {hiddenCount > 0 ? ` · ${hiddenCount} lower-priority point${hiddenCount > 1 ? "s" : ""} hidden` : ""}
           </p>
         </div>
         <span className={`friction-inbox-progress ${canRun ? "is-ready" : ""}`}>
@@ -279,6 +289,9 @@ export function FrictionInboxCard({
 
       <div className="friction-inbox-direction">
         <p className="friction-inbox-direction-label">Direction override (optional)</p>
+        <p className="text-xs text-friction-muted">
+          Use this as a default, then adjust only the exceptions below.
+        </p>
         <div className="friction-inbox-direction-buttons" role="radiogroup" aria-label="Direction override">
           {directionOptions.map((option) => (
             <button
@@ -293,6 +306,22 @@ export function FrictionInboxCard({
                   localDirection === option.value ? undefined : option.value;
                 setLocalDirection(nextDirection);
                 onDirectionChange(nextDirection);
+                if (!nextDirection) return;
+                const unresolvedRows = rows.filter((row) => !row.choice);
+                if (unresolvedRows.length === 0) return;
+                setLocalResolutions((previous) => {
+                  const next = { ...previous };
+                  unresolvedRows.forEach((row) => {
+                    next[row.key] = {
+                      choice: nextDirection,
+                      rationale: previous[row.key]?.rationale ?? row.rationale,
+                    };
+                  });
+                  return next;
+                });
+                unresolvedRows.forEach((row) => {
+                  onResolutionChange(row.key, { choice: nextDirection });
+                });
               }}
               aria-pressed={localDirection === option.value}
             >
@@ -302,9 +331,23 @@ export function FrictionInboxCard({
         </div>
       </div>
 
+      <label className="friction-rationale">
+        <span>Context note (optional)</span>
+        <textarea
+          value={localContextNote}
+          rows={3}
+          onChange={(event) => {
+            const value = event.target.value;
+            setLocalContextNote(value);
+            onContextNoteChange(value);
+          }}
+          placeholder="Capture hard constraints, team reality, or one sentence about what matters most."
+        />
+      </label>
+
       {rows.length === 0 ? (
         <p className="friction-inbox-empty">
-          No friction detected. You can run Phase 2 directly.
+          No high-priority disagreement detected. You can generate the brief directly.
         </p>
       ) : (
         <div className="friction-inbox-list">
@@ -330,7 +373,7 @@ export function FrictionInboxCard({
                 >
                   <div className="friction-row-main">
                     <p className="friction-row-title">
-                      {row.index + 1}. {row.field}
+                      {row.rank + 1}. {row.field}
                     </p>
                     <div className="friction-row-agent-snippets">
                       {agents.map((agent, agentIndex) => (
@@ -387,7 +430,7 @@ export function FrictionInboxCard({
                     </div>
 
                     <label className="friction-rationale">
-                      <span>Rationale</span>
+                      <span>Optional note</span>
                       <textarea
                         value={row.rationale}
                         rows={2}
@@ -402,12 +445,10 @@ export function FrictionInboxCard({
                           }));
                           onResolutionChange(row.key, { rationale });
                         }}
-                        placeholder="Why this choice is best for delivery and risk..."
+                        placeholder="Add context only if the default brief would miss something important."
                         aria-invalid={invalid}
                       />
-                      <span className={row.validRationale ? "is-valid" : ""}>
-                        {normalizeRationale(row.rationale).length}/{MIN_RATIONALE_LENGTH} min chars
-                      </span>
+                      <span className="is-valid">Skip unless the choice needs extra context.</span>
                     </label>
 
                     <section className="friction-advanced-drawer">
@@ -449,7 +490,7 @@ export function FrictionInboxCard({
       <footer className="friction-inbox-footer">
         {!canRun ? (
           <p className="friction-inbox-hint">
-            Resolve every friction with a choice and rationale before running Phase 2.
+            Pick a side or hybrid for each top disagreement. Add context once if it matters.
           </p>
         ) : null}
         <button
@@ -461,6 +502,7 @@ export function FrictionInboxCard({
             if (!canRun) return;
             onSubmit({
               direction: localDirection,
+              contextNote: localContextNote,
               status: canRun ? "ready" : "draft",
               resolutions: rows.map((row) => ({
                 key: row.key,
@@ -480,7 +522,7 @@ export function FrictionInboxCard({
           ) : (
             <>
               <Check className="h-4 w-4" aria-hidden="true" />
-              Resolve &amp; Run Phase 2
+              Generate brief
             </>
           )}
         </button>

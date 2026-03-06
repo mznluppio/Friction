@@ -13,6 +13,7 @@ enum JudgeProvider {
     Haiku,
     Flash,
     Ollama,
+    OpenCode,
 }
 
 pub async fn evaluate_confidence(
@@ -60,6 +61,17 @@ pub async fn evaluate_confidence(
             .await?;
             parse_confidence_output(&response)
         }
+        JudgeProvider::OpenCode => {
+            let response = call_opencode(
+                requirement,
+                diff,
+                code_a,
+                attack_report_json,
+                model_override,
+            )
+            .await?;
+            parse_confidence_output(&response)
+        }
     }
 }
 
@@ -75,10 +87,43 @@ fn resolve_provider(provider_override: Option<&str>) -> Result<JudgeProvider, St
         "haiku" => Ok(JudgeProvider::Haiku),
         "flash" => Ok(JudgeProvider::Flash),
         "ollama" => Ok(JudgeProvider::Ollama),
+        "opencode" => Ok(JudgeProvider::OpenCode),
         unsupported => Err(format!(
-            "Unsupported judge provider '{unsupported}'. Use haiku|flash|ollama"
+            "Unsupported judge provider '{unsupported}'. Use haiku|flash|ollama|opencode"
         )),
     }
+}
+
+async fn call_opencode(
+    requirement: &str,
+    diff: &str,
+    code_a: &str,
+    attack_report_json: &str,
+    _model_override: Option<&str>,
+) -> Result<String, String> {
+    use crate::agents;
+
+    let prompt = format!(
+        "{}\n\n{}",
+        judge_system_prompt(),
+        judge_user_prompt(requirement, diff, code_a, attack_report_json)
+    );
+
+    // Use runtime_config from env if available (stub for now, as evaluate_confidence doesn't receive it)
+    let runtime_config = None;
+
+    agents::run_agent_cli(
+        "opencode",
+        Some("judge"),
+        &prompt,
+        ".",
+        None,
+        "Judge OpenCode evaluation",
+        runtime_config,
+        agents::CliExecutionIsolationMode::SharedWorktree,
+        None,
+    )
+    .await
 }
 
 async fn call_anthropic(
