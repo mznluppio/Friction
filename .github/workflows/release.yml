@@ -9,8 +9,8 @@ permissions:
   contents: write
 
 jobs:
-  build-macos:
-    name: Build macOS (universal)
+  build-macos-silicon:
+    name: Build macOS (Apple Silicon)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,10 +21,10 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Install Rust targets (universal binary)
+      - name: Install Rust target (aarch64)
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: aarch64-apple-darwin
 
       - name: Cache Cargo
         uses: actions/cache@v4
@@ -35,13 +35,13 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             src-tauri/target/
-          key: ${{ runner.os }}-cargo-release-${{ hashFiles('src-tauri/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-release-silicon-${{ hashFiles('src-tauri/Cargo.lock') }}
 
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Build Tauri app (universal macOS)
-        run: npx tauri build --target universal-apple-darwin
+      - name: Build Tauri app (macOS Apple Silicon)
+        run: npx tauri build --target aarch64-apple-darwin
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -50,13 +50,62 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
-      - name: Upload macOS artifacts
+      - name: Upload Apple Silicon artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: friction-macos
+          name: friction-macos-silicon
           path: |
-            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
-            src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+            src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz
+
+  build-macos-intel:
+    name: Build macOS (Intel)
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Rust target (x86_64)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            src-tauri/target/
+          key: ${{ runner.os }}-cargo-release-intel-${{ hashFiles('src-tauri/Cargo.lock') }}
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build Tauri app (macOS Intel)
+        run: npx tauri build --target x86_64-apple-darwin
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Upload Intel artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: friction-macos-intel
+          path: |
+            src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+            src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app.tar.gz
 
   build-linux:
     name: Build Linux (x86_64)
@@ -152,16 +201,22 @@ jobs:
 
   release:
     name: Create GitHub Release
-    needs: [build-macos, build-linux, build-windows]
+    needs: [build-macos-silicon, build-macos-intel, build-linux, build-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download macOS artifacts
+      - name: Download Apple Silicon artifacts
         uses: actions/download-artifact@v4
         with:
-          name: friction-macos
-          path: artifacts/macos
+          name: friction-macos-silicon
+          path: artifacts/macos-silicon
+
+      - name: Download Intel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: friction-macos-intel
+          path: artifacts/macos-intel
 
       - name: Download Linux artifacts
         uses: actions/download-artifact@v4
@@ -179,7 +234,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/macos/**
+            artifacts/macos-silicon/**
+            artifacts/macos-intel/**
             artifacts/linux/**
             artifacts/windows/**
           generate_release_notes: true
