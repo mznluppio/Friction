@@ -88,7 +88,7 @@ type ConfirmIntent = {
   confirmLabel: string;
 };
 
-const APP_VERSION = "1.0.2";
+const APP_VERSION = "1.0.3";
 const PROMPT_BUNDLE_VERSION = "friction-prompts.2026-03-03";
 
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
