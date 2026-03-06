@@ -342,7 +342,11 @@ fn session_problem_statement(record: &SessionRecord) -> String {
 }
 
 fn session_status(record: &SessionRecord) -> String {
-    if let Some(status) = record.status.as_ref().filter(|value| !value.trim().is_empty()) {
+    if let Some(status) = record
+        .status
+        .as_ref()
+        .filter(|value| !value.trim().is_empty())
+    {
         return status.clone();
     }
 
@@ -366,7 +370,11 @@ fn session_status(record: &SessionRecord) -> String {
 }
 
 fn session_title(record: &SessionRecord) -> String {
-    if let Some(title) = record.title.as_ref().filter(|value| !value.trim().is_empty()) {
+    if let Some(title) = record
+        .title
+        .as_ref()
+        .filter(|value| !value.trim().is_empty())
+    {
         return title.clone();
     }
 
@@ -421,7 +429,12 @@ fn session_action_brief(record: &SessionRecord) -> Option<&super::ExecutionBrief
     record
         .result
         .as_ref()
-        .and_then(|result| result.action_brief.as_ref().or(result.execution_brief.as_ref()))
+        .and_then(|result| {
+            result
+                .action_brief
+                .as_ref()
+                .or(result.execution_brief.as_ref())
+        })
         .or_else(|| {
             record.phase2.as_ref().and_then(|phase2| {
                 phase2

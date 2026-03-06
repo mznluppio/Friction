@@ -744,7 +744,10 @@ fn normalize_agent_plan(mut plan: AgentPlan) -> AgentPlan {
 
     if plan.problem_read.trim().is_empty() {
         plan.problem_read = if !plan.architecture.trim().is_empty() {
-            format!("Frames the problem through this approach: {}", plan.architecture)
+            format!(
+                "Frames the problem through this approach: {}",
+                plan.architecture
+            )
         } else if !plan.strategy.trim().is_empty() {
             plan.strategy.clone()
         } else {
@@ -3118,13 +3121,9 @@ pub async fn run_agent_cli(
                 let strict_state_home = ensure_opencode_strict_state_home(
                     phase12_agent_context.map(|context| context.agent_id.as_str()),
                 )?;
-                extra_environment.push((
-                    "XDG_STATE_HOME".to_string(),
-                    strict_state_home,
-                ));
-                startup_info_chunk = Some(
-                    "[info] Using cached OpenCode state (strict isolation).".to_string(),
-                );
+                extra_environment.push(("XDG_STATE_HOME".to_string(), strict_state_home));
+                startup_info_chunk =
+                    Some("[info] Using cached OpenCode state (strict isolation).".to_string());
             }
             let mut args = vec![
                 "run".to_string(),
@@ -3632,9 +3631,8 @@ fn file_modified_epoch_secs(path: &Path) -> Option<u64> {
 }
 
 fn sync_gemini_bridge_cache_file(source: &Path, cache: &Path) -> Result<(), String> {
-    let source_meta = fs::metadata(source).map_err(|err| {
-        format!("failed to read Gemini source metadata {:?}: {err}", source)
-    })?;
+    let source_meta = fs::metadata(source)
+        .map_err(|err| format!("failed to read Gemini source metadata {:?}: {err}", source))?;
     let source_len = source_meta.len();
     let source_mtime = file_modified_epoch_secs(source).unwrap_or(0);
 
@@ -3643,12 +3641,10 @@ fn sync_gemini_bridge_cache_file(source: &Path, cache: &Path) -> Result<(), Stri
         let cache_len = cache_meta.len();
         let cache_mtime = file_modified_epoch_secs(cache).unwrap_or(0);
         if cache_len == source_len && cache_mtime >= source_mtime {
-            let source_bytes = fs::read(source).map_err(|err| {
-                format!("failed to read Gemini source file {:?}: {err}", source)
-            })?;
-            let cache_bytes = fs::read(cache).map_err(|err| {
-                format!("failed to read Gemini cache file {:?}: {err}", cache)
-            })?;
+            let source_bytes = fs::read(source)
+                .map_err(|err| format!("failed to read Gemini source file {:?}: {err}", source))?;
+            let cache_bytes = fs::read(cache)
+                .map_err(|err| format!("failed to read Gemini cache file {:?}: {err}", cache))?;
             cache_is_current = source_bytes == cache_bytes;
         }
     }
@@ -4436,7 +4432,10 @@ async fn run_cli_command(
             None,
             None,
         );
-        if let Some(info_chunk) = startup_info_chunk.map(str::trim).filter(|chunk| !chunk.is_empty()) {
+        if let Some(info_chunk) = startup_info_chunk
+            .map(str::trim)
+            .filter(|chunk| !chunk.is_empty())
+        {
             emit_cli_command_event(
                 context,
                 CliCommandLogKind::CommandChunk,
@@ -5049,10 +5048,10 @@ fn extract_event_stream_json_candidates(raw: &str) -> Vec<String> {
                              key: &str,
                              candidates: &mut Vec<String>,
                              seen: &mut HashSet<String>| {
-            if let Some(text) = obj.get(key).and_then(Value::as_str) {
-                push(text, candidates, seen);
-            }
-        };
+        if let Some(text) = obj.get(key).and_then(Value::as_str) {
+            push(text, candidates, seen);
+        }
+    };
 
     for line in raw.lines() {
         if candidates.len() >= 24 {
@@ -5475,10 +5474,12 @@ fn coerce_agent_plan_from_raw(raw: &str) -> Option<AgentPlan> {
     }
 
     Some(AgentPlan {
-        problem_read: first_sentence_like_text(raw, 220)
-            .unwrap_or_else(|| "Fallback problem framing generated from non-JSON CLI output.".to_string()),
-        main_hypothesis: first_sentence_like_text(raw, 160)
-            .unwrap_or_else(|| "Fallback hypothesis generated from non-JSON CLI output.".to_string()),
+        problem_read: first_sentence_like_text(raw, 220).unwrap_or_else(|| {
+            "Fallback problem framing generated from non-JSON CLI output.".to_string()
+        }),
+        main_hypothesis: first_sentence_like_text(raw, 160).unwrap_or_else(|| {
+            "Fallback hypothesis generated from non-JSON CLI output.".to_string()
+        }),
         strategy: architecture.clone(),
         next_steps: vec![
             "Clarify scope and constraints.".to_string(),

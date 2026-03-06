@@ -393,13 +393,7 @@ fn build_phase2_divergences(plans: &[NamedAgentPlan]) -> Vec<Divergence> {
 
     let risks_values = plans
         .iter()
-        .map(|item| {
-            (
-                item.id.clone(),
-                item.label.clone(),
-                item.plan.risks.clone(),
-            )
-        })
+        .map(|item| (item.id.clone(), item.label.clone(), item.plan.risks.clone()))
         .collect::<Vec<_>>();
     if let Some(div) = compare_list_consensus("risk_framing", &risks_values) {
         divergences.push(div);
@@ -847,8 +841,7 @@ async fn run_phase2_impl(
         {
             items.push(div);
         }
-        if let Some(div) = legacy_pair_divergence_list("risk_framing", &arch.risks, &prag.risks)
-        {
+        if let Some(div) = legacy_pair_divergence_list("risk_framing", &arch.risks, &prag.risks) {
             items.push(div);
         }
         if let Some(div) =
@@ -3546,7 +3539,8 @@ exit 42
                 plan: session::AgentPlan {
                     problem_read: "Frame around a narrower UI symptom.".to_string(),
                     main_hypothesis: "The failure is partly frontend-specific.".to_string(),
-                    strategy: "Reproduce first, then inspect a different evidence stream.".to_string(),
+                    strategy: "Reproduce first, then inspect a different evidence stream."
+                        .to_string(),
                     next_steps: vec![
                         "reproduce issue".to_string(),
                         "inspect frontend telemetry".to_string(),
