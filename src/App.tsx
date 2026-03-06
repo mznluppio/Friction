@@ -2918,42 +2918,39 @@ export default function App() {
 
   function handleCliCommandChange(cli: AgentCli, value: string) {
     setCliCommands((previous) => {
-      const trimmed = value.trim();
-      if (!trimmed) {
+      if (!value) {
         const { [cli]: _, ...rest } = previous;
         return rest;
       }
       return {
         ...previous,
-        [cli]: trimmed,
+        [cli]: value,
       };
     });
   }
 
   function handleCliModelChange(cli: AgentCli, value: string) {
     setCliModels((previous) => {
-      const trimmed = value.trim();
-      if (!trimmed) {
+      if (!value) {
         const { [cli]: _, ...rest } = previous;
         return rest;
       }
       return {
         ...previous,
-        [cli]: trimmed,
+        [cli]: value,
       };
     });
   }
 
   function handleAgentCliModelChange(agentId: string, value: string) {
     setAgentCliModels((previous) => {
-      const trimmed = value.trim();
-      if (!trimmed) {
+      if (!value) {
         const { [agentId]: _, ...rest } = previous;
         return rest;
       }
       return {
         ...previous,
-        [agentId]: trimmed,
+        [agentId]: value,
       };
     });
   }
