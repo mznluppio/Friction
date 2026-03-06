@@ -8,3 +8,18 @@ coverage
 /src-tauri/target
 /src-tauri/gen
 /src-tauri/.cargo
+
+# Assistant / Agent Files
+.agent/
+.agents/
+.claude/
+.gemini/
+
+# Cache
+*.tsbuildinfo
+.eslintcache
+
+# Env
+.env
+.env.local
+.env.*.local
