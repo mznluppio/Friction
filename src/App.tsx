@@ -88,7 +88,7 @@ type ConfirmIntent = {
   confirmLabel: string;
 };
 
-const APP_VERSION = "1.2.0";
+const APP_VERSION = "1.0.0";
 const PROMPT_BUNDLE_VERSION = "friction-prompts.2026-03-03";
 
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
@@ -124,31 +124,31 @@ const PHASE_AGENT_PRESETS: {
   defaultCli: AgentCli;
   directionDescription: string;
 }[] = [
-  {
-    id: "agent_a",
-    label: "Agent A · Architect",
-    defaultCli: DEFAULT_AGENT_A_CLI,
-    directionDescription: "Robustness and long-term architecture.",
-  },
-  {
-    id: "agent_b",
-    label: "Agent B · Pragmatist",
-    defaultCli: DEFAULT_AGENT_B_CLI,
-    directionDescription: "Fastest practical delivery path.",
-  },
-  {
-    id: "agent_c",
-    label: "Agent C · Challenger",
-    defaultCli: "gemini",
-    directionDescription: "Independent critical perspective.",
-  },
-  {
-    id: "agent_d",
-    label: "Agent D · Operator",
-    defaultCli: "claude",
-    directionDescription: "Operations, reliability, and cost.",
-  },
-];
+    {
+      id: "agent_a",
+      label: "Agent A · Architect",
+      defaultCli: DEFAULT_AGENT_A_CLI,
+      directionDescription: "Robustness and long-term architecture.",
+    },
+    {
+      id: "agent_b",
+      label: "Agent B · Pragmatist",
+      defaultCli: DEFAULT_AGENT_B_CLI,
+      directionDescription: "Fastest practical delivery path.",
+    },
+    {
+      id: "agent_c",
+      label: "Agent C · Challenger",
+      defaultCli: "gemini",
+      directionDescription: "Independent critical perspective.",
+    },
+    {
+      id: "agent_d",
+      label: "Agent D · Operator",
+      defaultCli: "claude",
+      directionDescription: "Operations, reliability, and cost.",
+    },
+  ];
 
 const CLI_DETECTION_PRIORITY: AgentCli[] = [
   "claude",
@@ -638,19 +638,19 @@ function buildHumanDecisionStructuredFromBrief(
 ): HumanDecisionStructured {
   return brief.mode === "winner"
     ? {
-        mode: "winner",
-        winnerAgentId: brief.baselineAgentId,
-        scorecard: buildNeutralScorecard(plans),
-        rationale: brief.finalDecision,
-      }
+      mode: "winner",
+      winnerAgentId: brief.baselineAgentId,
+      scorecard: buildNeutralScorecard(plans),
+      rationale: brief.finalDecision,
+    }
     : {
-        mode: "hybrid",
-        hybrid: {
-          baseAgentId: brief.baselineAgentId,
-        },
-        scorecard: buildNeutralScorecard(plans),
-        rationale: brief.mergeNote ?? brief.finalDecision,
-      };
+      mode: "hybrid",
+      hybrid: {
+        baseAgentId: brief.baselineAgentId,
+      },
+      scorecard: buildNeutralScorecard(plans),
+      rationale: brief.mergeNote ?? brief.finalDecision,
+    };
 }
 
 function buildDecisionFromBrief(brief: ExecutionBrief): string {
@@ -783,8 +783,8 @@ function synthesizeExecutionBrief(
   );
   const openRisks = fallbackList(
     baselinePlan?.plan.risks.slice(0, 2) ??
-      baselinePlan?.plan.warnings.slice(0, 2) ??
-      [],
+    baselinePlan?.plan.warnings.slice(0, 2) ??
+    [],
     "No explicit open risk captured.",
   );
   const openQuestions = fallbackList(
@@ -880,8 +880,8 @@ function synthesizeExecutionBriefFromLegacyDecision(
     ),
     openRisks: fallbackList(
       baselinePlan?.plan.risks.slice(0, 2) ??
-        baselinePlan?.plan.warnings.slice(0, 2) ??
-        [],
+      baselinePlan?.plan.warnings.slice(0, 2) ??
+      [],
       "No explicit open risk captured.",
     ),
     openQuestions: fallbackList(
@@ -1393,9 +1393,9 @@ function applyCliCommandLogEvent(
   const hasRun = runIndex >= 0;
   const run = hasRun
     ? {
-        ...next[runIndex],
-        commands: next[runIndex].commands.map((command) => ({ ...command })),
-      }
+      ...next[runIndex],
+      commands: next[runIndex].commands.map((command) => ({ ...command })),
+    }
     : createCliTimelineRun(event.requestId, event.phase, event.timestamp);
   run.updatedAt = event.timestamp;
   if (!hasRun) {
@@ -1780,11 +1780,11 @@ export default function App() {
   const activeCliTimelineRequestIdsRef = useRef<Set<string>>(new Set());
   const pendingCliEventsRef = useRef<CliCommandLogEvent[]>([]);
   const cliEventFlushTimerRef = useRef<number | null>(null);
-  const handleLoadSessionRef = useRef<(id: string) => void>(() => {});
-  const handleRestartRef = useRef<() => void>(() => {});
+  const handleLoadSessionRef = useRef<(id: string) => void>(() => { });
+  const handleRestartRef = useRef<() => void>(() => { });
   const submitWorkflowInputRef = useRef<
     (input: string) => Promise<void> | void
-  >(() => {});
+  >(() => { });
   const autosaveTimerRef = useRef<number | null>(null);
   const isHydratingSessionRef = useRef(false);
 
@@ -3078,7 +3078,7 @@ export default function App() {
           1,
           Math.round(
             performance.now() -
-              (startedAtByAlias.get(alias) ?? performance.now()),
+            (startedAtByAlias.get(alias) ?? performance.now()),
           ),
         );
         const fetchedAt = new Date().toISOString();
@@ -3839,9 +3839,9 @@ export default function App() {
         : null,
       phase2: phase2Result
         ? {
-            ...phase2Result,
-            humanDecision: withTrimmed(decision),
-          }
+          ...phase2Result,
+          humanDecision: withTrimmed(decision),
+        }
         : null,
       phase3: phase3Result ?? null,
       consentedToDataset,
@@ -4074,13 +4074,13 @@ export default function App() {
         draft.phase2Result.actionBrief || draft.phase2Result.executionBrief
           ? draft.phase2Result
           : {
-              ...draft.phase2Result,
-              executionBrief: synthesizeExecutionBriefFromLegacyDecision(
-                draft.phase2Result,
-                phase2AgentsFromResult(draft.phase2Result, phase12AgentsSafe),
-                draft.frictionInboxDraft?.contextNote ?? draft.clarifications,
-              ),
-            };
+            ...draft.phase2Result,
+            executionBrief: synthesizeExecutionBriefFromLegacyDecision(
+              draft.phase2Result,
+              phase2AgentsFromResult(draft.phase2Result, phase12AgentsSafe),
+              draft.frictionInboxDraft?.contextNote ?? draft.clarifications,
+            ),
+          };
       if (phase2Result.executionBrief && !phase2Result.actionBrief) {
         phase2Result.actionBrief = phase2Result.executionBrief;
       }
@@ -4132,58 +4132,58 @@ export default function App() {
     const loadedPhase1: Phase1Result | null =
       phase1Log && (phase1Architect || phase1Pragmatist)
         ? {
-            architect: phase1Architect ?? phase1Pragmatist,
-            pragmatist: phase1Pragmatist ?? phase1Architect,
-            agentResponses: phase1Log.interpretations.map((response, index) => {
-              const agent = runtimePhase12Agents[index] ?? {
-                id: `agent_${index + 1}`,
-                label: `Agent ${index + 1}`,
-                cli: DEFAULT_AGENT_A_CLI,
-              };
-              return {
-                id: agent.id,
-                label: agent.label,
-                cli: agent.cli,
-                response,
-              };
-            }),
-            divergences: phase1Log.divergences,
-            humanClarifications: phase1Log.human_clarifications,
-          }
+          architect: phase1Architect ?? phase1Pragmatist,
+          pragmatist: phase1Pragmatist ?? phase1Architect,
+          agentResponses: phase1Log.interpretations.map((response, index) => {
+            const agent = runtimePhase12Agents[index] ?? {
+              id: `agent_${index + 1}`,
+              label: `Agent ${index + 1}`,
+              cli: DEFAULT_AGENT_A_CLI,
+            };
+            return {
+              id: agent.id,
+              label: agent.label,
+              cli: agent.cli,
+              response,
+            };
+          }),
+          divergences: phase1Log.divergences,
+          humanClarifications: phase1Log.human_clarifications,
+        }
         : null;
 
     const loadedPhase2: Phase2Result | null =
       phase2Log && (phase2Architect || phase2Pragmatist)
         ? {
-            architect: phase2Architect ?? phase2Pragmatist,
-            pragmatist: phase2Pragmatist ?? phase2Architect,
-            agentPlans: phase2Log.plans.map((plan, index) => {
-              const agent = runtimePhase12Agents[index] ?? {
-                id: `agent_${index + 1}`,
-                label: `Agent ${index + 1}`,
-                cli: DEFAULT_AGENT_A_CLI,
-              };
-              return {
-                id: agent.id,
-                label: agent.label,
-                cli: agent.cli,
-                plan,
-              };
-            }),
-            divergences: phase2Log.divergences,
-            humanDecision: phase2Log.human_decision,
-            humanDecisionStructured: phase2Log.human_decision_structured,
-            executionBrief:
-              phase2Log.execution_brief ??
-              phase2Log.action_brief ??
-              session.result?.action_brief ??
-              session.result?.execution_brief,
-            actionBrief:
-              phase2Log.action_brief ??
-              phase2Log.execution_brief ??
-              session.result?.action_brief ??
-              session.result?.execution_brief,
-          }
+          architect: phase2Architect ?? phase2Pragmatist,
+          pragmatist: phase2Pragmatist ?? phase2Architect,
+          agentPlans: phase2Log.plans.map((plan, index) => {
+            const agent = runtimePhase12Agents[index] ?? {
+              id: `agent_${index + 1}`,
+              label: `Agent ${index + 1}`,
+              cli: DEFAULT_AGENT_A_CLI,
+            };
+            return {
+              id: agent.id,
+              label: agent.label,
+              cli: agent.cli,
+              plan,
+            };
+          }),
+          divergences: phase2Log.divergences,
+          humanDecision: phase2Log.human_decision,
+          humanDecisionStructured: phase2Log.human_decision_structured,
+          executionBrief:
+            phase2Log.execution_brief ??
+            phase2Log.action_brief ??
+            session.result?.action_brief ??
+            session.result?.execution_brief,
+          actionBrief:
+            phase2Log.action_brief ??
+            phase2Log.execution_brief ??
+            session.result?.action_brief ??
+            session.result?.execution_brief,
+        }
         : null;
 
     if (loadedPhase2 && !loadedPhase2.executionBrief) {
@@ -4217,14 +4217,14 @@ export default function App() {
 
     const loadedPhase3: Phase3Result = session.phase3
       ? {
-          codeA: session.phase3.code_a,
-          codeB: session.phase3.code_b,
-          attackReport: session.phase3.attack_report,
-          confidenceScore: session.phase3.confidence_score,
-          adrPath: session.phase3.adr_path,
-          adrMarkdown: session.phase3.adr_markdown,
-          workflowMode: session.metadata.workflow_mode,
-        }
+        codeA: session.phase3.code_a,
+        codeB: session.phase3.code_b,
+        attackReport: session.phase3.attack_report,
+        confidenceScore: session.phase3.confidence_score,
+        adrPath: session.phase3.adr_path,
+        adrMarkdown: session.phase3.adr_markdown,
+        workflowMode: session.metadata.workflow_mode,
+      }
       : placeholderPhase3();
 
     setCurrentSessionId(session.id);
@@ -4429,7 +4429,7 @@ export default function App() {
       const shouldFlushImmediately =
         payload.kind !== "command_chunk" ||
         pendingCliEventsRef.current.length >=
-          CLI_TIMELINE_EVENT_IMMEDIATE_FLUSH_THRESHOLD;
+        CLI_TIMELINE_EVENT_IMMEDIATE_FLUSH_THRESHOLD;
       if (shouldFlushImmediately) {
         if (cliEventFlushTimerRef.current !== null) {
           window.clearTimeout(cliEventFlushTimerRef.current);
@@ -4459,45 +4459,45 @@ export default function App() {
         const nextFrictionDraft = draft.phase2Result
           ? null
           : reconcileFrictionInboxDraft(
-              draft.phase1Result,
-              draft.frictionInboxDraft ?? null,
-            );
+            draft.phase1Result,
+            draft.frictionInboxDraft ?? null,
+          );
         const nextPhase2Result = draft.phase2Result
           ? draft.phase2Result.executionBrief
             ? draft.phase2Result
             : (() => {
-                const phase2Plans = phase2AgentsFromResult(
+              const phase2Plans = phase2AgentsFromResult(
+                draft.phase2Result,
+                phase12AgentsSafe,
+              );
+              const executionBrief =
+                synthesizeExecutionBriefFromLegacyDecision(
                   draft.phase2Result,
-                  phase12AgentsSafe,
+                  phase2Plans,
+                  draft.frictionInboxDraft?.contextNote ??
+                  draft.clarifications,
                 );
-                const executionBrief =
-                  synthesizeExecutionBriefFromLegacyDecision(
-                    draft.phase2Result,
+              return {
+                ...draft.phase2Result,
+                executionBrief,
+                humanDecisionStructured:
+                  draft.phase2Result.humanDecisionStructured ??
+                  buildHumanDecisionStructuredFromBrief(
+                    executionBrief,
                     phase2Plans,
-                    draft.frictionInboxDraft?.contextNote ??
-                      draft.clarifications,
-                  );
-                return {
-                  ...draft.phase2Result,
-                  executionBrief,
-                  humanDecisionStructured:
-                    draft.phase2Result.humanDecisionStructured ??
-                    buildHumanDecisionStructuredFromBrief(
-                      executionBrief,
-                      phase2Plans,
-                    ),
-                  humanDecision:
-                    withTrimmed(draft.phase2Result.humanDecision) ||
-                    buildDecisionFromBrief(executionBrief),
-                };
-              })()
+                  ),
+                humanDecision:
+                  withTrimmed(draft.phase2Result.humanDecision) ||
+                  buildDecisionFromBrief(executionBrief),
+              };
+            })()
           : null;
         const restoredStep: WorkflowStep = nextPhase2Result
           ? normalizeWorkflowStep(draft.workflowStep)
           : "friction";
         const nextDecision =
           nextPhase2Result?.humanDecision &&
-          withTrimmed(nextPhase2Result.humanDecision)
+            withTrimmed(nextPhase2Result.humanDecision)
             ? nextPhase2Result.humanDecision
             : nextPhase2Result?.executionBrief
               ? buildDecisionFromBrief(nextPhase2Result.executionBrief)
@@ -4743,7 +4743,7 @@ export default function App() {
       if (
         hasMeaningfulSessionContent ||
         nonWhitespaceLength(activeProblemStatement) >=
-          AUTOSAVE_MIN_NON_WHITESPACE
+        AUTOSAVE_MIN_NON_WHITESPACE
       ) {
         void persistSessionSnapshot({ silent: true });
       }

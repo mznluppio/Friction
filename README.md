@@ -4,10 +4,16 @@
   <p><strong>The disagreement engine for AI-assisted code.</strong></p>
 
   <p>
+    <a href="https://github.com/friction-labs/friction/actions/workflows/ci.yml"><img src="https://github.com/friction-labs/friction/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+    <a href="https://github.com/friction-labs/friction/releases"><img src="https://img.shields.io/github/v/release/friction-labs/friction.svg" alt="Release" /></a>
     <a href="https://reactjs.org/"><img src="https://img.shields.io/badge/React-18-blue.svg" alt="React 18" /></a>
     <a href="https://tauri.app/"><img src="https://img.shields.io/badge/Tauri-2.0-yellow.svg" alt="Tauri 2.0" /></a>
     <a href="https://tailwindcss.com/"><img src="https://img.shields.io/badge/Tailwind-CSS-38B2AC.svg" alt="Tailwind CSS" /></a>
     <a href="https://github.com/friction-labs/friction/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT" /></a>
+  </p>
+
+  <p>
+    <strong>Supported platforms:</strong> macOS (Apple Silicon &amp; Intel) · Linux (x86_64) · Windows (x86_64)
   </p>
 </div>
 
@@ -51,8 +57,8 @@ Most AI coding tools generate code and expect you to review it. But reviewing AI
 Clone the repository and install dependencies:
 
 ```bash
-git clone https://github.com/mznluppio/Friction.git
-cd Friction
+git clone https://github.com/friction-labs/friction.git
+cd friction
 npm install
 ```
 
@@ -126,10 +132,17 @@ friction/
 
 ## 🤝 Contributing
 
-Contributions are welcome! If you're encountering CLI mismatches or IPC state drift, refer to the **Runtime Diagnostics** panel in the app to debug binary path resolution and CLI readiness.
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, code conventions, and the pull request process.
 
-1. Run backend tests: `npm run test:backend`
-2. Ensure your code passes TypeScript compilation: `npm run build`
+If you're encountering CLI mismatches or IPC state drift, refer to the **Runtime Diagnostics** panel in the app (Settings → Agents → Diagnostics) to debug binary path resolution and CLI readiness.
+
+```bash
+# Run backend tests
+npm run test:backend
+
+# Type-check frontend
+npm run build
+```
 
 ## 🍏 macOS Distribution
 
