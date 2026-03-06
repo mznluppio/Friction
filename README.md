@@ -15,6 +15,8 @@
   <p>
     <strong>Supported platforms:</strong> macOS (Apple Silicon &amp; Intel) · Linux (x86_64) · Windows (x86_64)
   </p>
+
+  <img src="friction.png" alt="Friction App Preview" width="100%" />
 </div>
 
 ---
