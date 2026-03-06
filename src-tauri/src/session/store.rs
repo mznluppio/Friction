@@ -183,10 +183,7 @@ pub fn export_consented_dataset(
 
     if let Some(parent) = output_path.parent() {
         fs::create_dir_all(parent).map_err(|err| {
-            format!(
-                "failed to create dataset export directory {:?}: {err}",
-                parent
-            )
+            format!("failed to create dataset export directory {parent:?}: {err}")
         })?;
     }
 
@@ -216,7 +213,7 @@ pub fn export_consented_dataset(
     }
 
     fs::write(&output_path, payload)
-        .map_err(|err| format!("failed to write dataset export {:?}: {err}", output_path))?;
+        .map_err(|err| format!("failed to write dataset export {output_path:?}: {err}"))?;
 
     Ok(DatasetExportResult {
         path: output_path.to_string_lossy().to_string(),

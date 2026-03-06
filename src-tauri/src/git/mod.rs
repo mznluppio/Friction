@@ -42,7 +42,7 @@ pub fn create_worktrees(
     let agent_b_path = worktree_root.join("agent-gpt4o");
 
     fs::create_dir_all(&worktree_root)
-        .map_err(|err| format!("failed to create worktree root {:?}: {err}", worktree_root))?;
+        .map_err(|err| format!("failed to create worktree root {worktree_root:?}: {err}"))?;
 
     let agent_a_branch = format!("friction/{session_id}/agent-claude");
     let agent_b_branch = format!("friction/{session_id}/agent-gpt4o");
@@ -137,15 +137,12 @@ pub fn write_candidate_file(
     let target = root.join(relative_path);
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent).map_err(|err| {
-            format!(
-                "failed to create candidate parent directory {:?}: {err}",
-                parent
-            )
+            format!("failed to create candidate parent directory {parent:?}: {err}")
         })?;
     }
 
     fs::write(&target, content)
-        .map_err(|err| format!("failed to write candidate file {:?}: {err}", target))
+        .map_err(|err| format!("failed to write candidate file {target:?}: {err}"))
 }
 
 pub fn commit_candidate_file(
@@ -206,7 +203,7 @@ fn run_git(repo_path: &Path, args: &[&str]) -> Result<String, String> {
         .arg(repo_path)
         .args(args)
         .output()
-        .map_err(|err| format!("failed to execute git {:?}: {err}", args))?;
+        .map_err(|err| format!("failed to execute git {args:?}: {err}"))?;
 
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
@@ -225,7 +222,7 @@ fn run_git_with_config(repo_path: &Path, args: &[&str]) -> Result<String, String
         .arg(repo_path)
         .args(args)
         .output()
-        .map_err(|err| format!("failed to execute git {:?}: {err}", args))?;
+        .map_err(|err| format!("failed to execute git {args:?}: {err}"))?;
 
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
@@ -240,5 +237,5 @@ fn run_git_with_config(repo_path: &Path, args: &[&str]) -> Result<String, String
 
 fn to_str(path: &Path) -> Result<&str, String> {
     path.to_str()
-        .ok_or_else(|| format!("invalid utf-8 path: {:?}", path))
+        .ok_or_else(|| format!("invalid utf-8 path: {path:?}"))
 }
