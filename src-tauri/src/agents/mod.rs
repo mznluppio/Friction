@@ -483,6 +483,7 @@ fn emit_cli_command_log(context: &Phase12CliRunContext, mut event: CliCommandLog
     (context.emitter)(event);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_cli_command_event(
     context: &Phase12CliAgentContext,
     kind: CliCommandLogKind,
@@ -1523,7 +1524,7 @@ pub async fn list_cli_models(
     if !force_refresh {
         if let Some(cached) = previous_cache.as_ref() {
             let age_seconds = (Utc::now() - cached.updated_at).num_seconds();
-            if age_seconds >= 0 && age_seconds <= CLI_MODELS_CACHE_FRESH_SECS {
+            if (0..=CLI_MODELS_CACHE_FRESH_SECS).contains(&age_seconds) {
                 return Ok(CliModelsListOutput {
                     models: cached.models.clone(),
                     source: "cache".to_string(),
@@ -1534,7 +1535,7 @@ pub async fn list_cli_models(
                 });
             }
 
-            if age_seconds >= 0 && age_seconds <= CLI_MODELS_CACHE_HARD_SECS {
+            if (0..=CLI_MODELS_CACHE_HARD_SECS).contains(&age_seconds) {
                 spawn_cli_models_background_refresh(
                     alias.clone(),
                     runtime_config.cloned(),
@@ -2981,6 +2982,7 @@ pub async fn generate_attack_report_via_cli(
     Ok((parsed.attack_report, raw))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_agent_cli(
     agent_cli: &str,
     agent_model_scope: Option<&str>,
@@ -3294,10 +3296,7 @@ fn prepare_cli_execution_context(
                 &xdg_state,
             ] {
                 fs::create_dir_all(dir).map_err(|err| {
-                    format!(
-                        "failed to create strict phase1/2 isolation directory {:?}: {err}",
-                        dir
-                    )
+                    format!("failed to create strict phase1/2 isolation directory {dir:?}: {err}")
                 })?;
             }
 
@@ -3395,10 +3394,7 @@ fn collect_strict_phase12_environment() -> Vec<(String, String)> {
 fn ensure_opencode_shared_state_home(workdir: &Path) -> Result<String, String> {
     let state_home = workdir.join(".friction").join("opencode-state");
     fs::create_dir_all(&state_home).map_err(|err| {
-        format!(
-            "failed to create opencode state directory {:?}: {err}",
-            state_home
-        )
+        format!("failed to create opencode state directory {state_home:?}: {err}")
     })?;
     Ok(state_home.to_string_lossy().to_string())
 }
@@ -3438,10 +3434,7 @@ fn ensure_opencode_strict_state_home(agent_id: Option<&str>) -> Result<String, S
         .unwrap_or_else(|| "default".to_string());
     let state_home = root.join(bucket);
     fs::create_dir_all(&state_home).map_err(|err| {
-        format!(
-            "failed to create strict opencode state directory {:?}: {err}",
-            state_home
-        )
+        format!("failed to create strict opencode state directory {state_home:?}: {err}")
     })?;
     Ok(state_home.to_string_lossy().to_string())
 }
@@ -3574,17 +3567,13 @@ fn bridge_codex_auth_file_for_strict_phase12(
         .unwrap_or_else(|| execution_context.workdir.clone());
     let codex_home = bridge_base_dir.join("codex-home");
     fs::create_dir_all(&codex_home).map_err(|err| {
-        format!(
-            "failed to create strict phase1/2 codex home {:?}: {err}",
-            codex_home
-        )
+        format!("failed to create strict phase1/2 codex home {codex_home:?}: {err}")
     })?;
 
     let destination = codex_home.join("auth.json");
     fs::copy(host_auth_path, &destination).map_err(|err| {
         format!(
-            "failed to bridge codex auth file from {:?} to {:?}: {err}",
-            host_auth_path, destination
+            "failed to bridge codex auth file from {host_auth_path:?} to {destination:?}: {err}"
         )
     })?;
 
@@ -3632,7 +3621,7 @@ fn file_modified_epoch_secs(path: &Path) -> Option<u64> {
 
 fn sync_gemini_bridge_cache_file(source: &Path, cache: &Path) -> Result<(), String> {
     let source_meta = fs::metadata(source)
-        .map_err(|err| format!("failed to read Gemini source metadata {:?}: {err}", source))?;
+        .map_err(|err| format!("failed to read Gemini source metadata {source:?}: {err}"))?;
     let source_len = source_meta.len();
     let source_mtime = file_modified_epoch_secs(source).unwrap_or(0);
 
@@ -3642,9 +3631,9 @@ fn sync_gemini_bridge_cache_file(source: &Path, cache: &Path) -> Result<(), Stri
         let cache_mtime = file_modified_epoch_secs(cache).unwrap_or(0);
         if cache_len == source_len && cache_mtime >= source_mtime {
             let source_bytes = fs::read(source)
-                .map_err(|err| format!("failed to read Gemini source file {:?}: {err}", source))?;
+                .map_err(|err| format!("failed to read Gemini source file {source:?}: {err}"))?;
             let cache_bytes = fs::read(cache)
-                .map_err(|err| format!("failed to read Gemini cache file {:?}: {err}", cache))?;
+                .map_err(|err| format!("failed to read Gemini cache file {cache:?}: {err}"))?;
             cache_is_current = source_bytes == cache_bytes;
         }
     }
@@ -3655,18 +3644,12 @@ fn sync_gemini_bridge_cache_file(source: &Path, cache: &Path) -> Result<(), Stri
 
     if let Some(parent) = cache.parent() {
         fs::create_dir_all(parent).map_err(|err| {
-            format!(
-                "failed to create Gemini bridge cache directory {:?}: {err}",
-                parent
-            )
+            format!("failed to create Gemini bridge cache directory {parent:?}: {err}")
         })?;
     }
 
     fs::copy(source, cache).map_err(|err| {
-        format!(
-            "failed to refresh Gemini bridge cache file from {:?} to {:?}: {err}",
-            source, cache
-        )
+        format!("failed to refresh Gemini bridge cache file from {source:?} to {cache:?}: {err}")
     })?;
     Ok(())
 }
@@ -3695,10 +3678,7 @@ fn hard_link_or_symlink_or_copy(source: &Path, destination: &Path) -> Result<(),
     }
 
     fs::copy(source, destination).map_err(|err| {
-        format!(
-            "failed to copy Gemini config file from {:?} to {:?}: {err}",
-            source, destination
-        )
+        format!("failed to copy Gemini config file from {source:?} to {destination:?}: {err}")
     })?;
     Ok(())
 }
@@ -3723,8 +3703,7 @@ fn bridge_gemini_config_for_strict_phase12(
     let isolated_gemini_dir = isolated_home.join(".gemini");
     fs::create_dir_all(&isolated_gemini_dir).map_err(|err| {
         format!(
-            "failed to create strict phase1/2 Gemini config directory {:?}: {err}",
-            isolated_gemini_dir
+            "failed to create strict phase1/2 Gemini config directory {isolated_gemini_dir:?}: {err}"
         )
     })?;
 
@@ -3748,17 +3727,13 @@ fn bridge_gemini_config_for_strict_phase12(
             sync_gemini_bridge_cache_file(&source, &cache_path)?;
             hard_link_or_symlink_or_copy(&cache_path, &destination).map_err(|err| {
                 format!(
-                    "failed to link Gemini config file from {:?} to {:?}: {err}",
-                    cache_path, destination
+                    "failed to link Gemini config file from {cache_path:?} to {destination:?}: {err}"
                 )
             })?;
             continue;
         }
         fs::copy(&source, &destination).map_err(|err| {
-            format!(
-                "failed to bridge Gemini config file from {:?} to {:?}: {err}",
-                source, destination
-            )
+            format!("failed to bridge Gemini config file from {source:?} to {destination:?}: {err}")
         })?;
     }
 
@@ -4203,7 +4178,7 @@ fn build_cli_capture_path(
         .map(|dir| dir.join(".friction").join("generated"))
         .unwrap_or_else(|| env::temp_dir().join("friction-cli"));
     fs::create_dir_all(&parent)
-        .map_err(|err| format!("failed to create CLI output directory {:?}: {err}", parent))?;
+        .map_err(|err| format!("failed to create CLI output directory {parent:?}: {err}"))?;
 
     Ok(parent.join(format!("{prefix}-{}.txt", Uuid::new_v4().simple())))
 }
@@ -4358,6 +4333,7 @@ async fn await_cli_stream_task(
         .map_err(|err| format!("failed to join {stream_label} stream task: {err}"))?
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_cli_command(
     command: &str,
     args: &[String],
@@ -4511,8 +4487,7 @@ async fn run_cli_command(
                     command_id.clone(),
                     Some(CliOutputStreamKind::Stdout),
                     Some(format!(
-                        "[info] command running... {}s elapsed\n",
-                        elapsed_secs
+                        "[info] command running... {elapsed_secs}s elapsed\n"
                     )),
                     None,
                     None,

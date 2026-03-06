@@ -545,11 +545,10 @@ async fn run_phase1_impl(
         }
         let (arch, prag) = agents::analyze_dual(&requirement, runtime_config.as_ref())
             .await
-            .map_err(|err| {
+            .inspect_err(|err| {
                 if let Some(context) = phase12_run_context.as_ref() {
                     agents::emit_phase12_run_failed(context, err.clone());
                 }
-                err
             })?;
         let responses = vec![
             NamedAgentResponse {
@@ -574,11 +573,10 @@ async fn run_phase1_impl(
             phase12_run_context.as_ref(),
         )
         .await
-        .map_err(|err| {
+        .inspect_err(|err| {
             if let Some(context) = phase12_run_context.as_ref() {
                 agents::emit_phase12_run_failed(context, err.clone());
             }
-            err
         })?;
         let (arch, prag) = require_dual_responses(&responses)?;
         (arch, prag, responses)
@@ -782,11 +780,10 @@ async fn run_phase2_impl(
         let (arch, prag) =
             agents::plan_dual(&requirement, &clarifications, runtime_config.as_ref())
                 .await
-                .map_err(|err| {
+                .inspect_err(|err| {
                     if let Some(context) = phase12_run_context.as_ref() {
                         agents::emit_phase12_run_failed(context, err.clone());
                     }
-                    err
                 })?;
         let plans = vec![
             NamedAgentPlan {
@@ -812,11 +809,10 @@ async fn run_phase2_impl(
             phase12_run_context.as_ref(),
         )
         .await
-        .map_err(|err| {
+        .inspect_err(|err| {
             if let Some(context) = phase12_run_context.as_ref() {
                 agents::emit_phase12_run_failed(context, err.clone());
             }
-            err
         })?;
         let (arch, prag) = require_dual_plans(&plans)?;
         (arch, prag, plans)
@@ -879,6 +875,7 @@ async fn run_phase2_impl(
 
 #[cfg(not(test))]
 #[tauri::command(rename_all = "snake_case")]
+#[allow(clippy::too_many_arguments)]
 async fn run_phase2(
     window: tauri::Window,
     requirement: String,
@@ -997,6 +994,7 @@ fn diff_worktrees(
     git::diff_refs(&repo_path, &left_ref, &right_ref)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_phase3_impl(
     repo_path: String,
     base_branch: Option<String>,
@@ -1033,12 +1031,12 @@ async fn run_phase3_impl(
     let base = base_branch.unwrap_or_else(|| "main".to_string());
     let should_cleanup = auto_cleanup.unwrap_or(true);
 
-    let layout = git::create_worktrees(&repo_path, &base, &resolved_session_id).map_err(|err| {
-        if let Some(context) = phase12_run_context.as_ref() {
-            agents::emit_phase12_run_failed(context, err.clone());
-        }
-        err
-    })?;
+    let layout =
+        git::create_worktrees(&repo_path, &base, &resolved_session_id).inspect_err(|err| {
+            if let Some(context) = phase12_run_context.as_ref() {
+                agents::emit_phase12_run_failed(context, err.clone());
+            }
+        })?;
     let execution = async {
         let resolved_agent_a_cli = agents::resolve_agent_a_cli(agent_a_cli.as_deref())?;
         let code_a = agents::generate_candidate_via_cli(
@@ -1132,6 +1130,7 @@ async fn run_phase3_impl(
 
 #[cfg(not(test))]
 #[tauri::command(rename_all = "snake_case")]
+#[allow(clippy::too_many_arguments)]
 async fn run_phase3(
     window: tauri::Window,
     repo_path: String,
@@ -1256,10 +1255,10 @@ fn write_adr_markdown(
         .join(format!("ADR-{session_id}.md"));
     if let Some(parent) = adr_path.parent() {
         fs::create_dir_all(parent)
-            .map_err(|err| format!("failed to create ADR directory {:?}: {err}", parent))?;
+            .map_err(|err| format!("failed to create ADR directory {parent:?}: {err}"))?;
     }
     fs::write(&adr_path, &markdown)
-        .map_err(|err| format!("failed to write ADR file {:?}: {err}", adr_path))?;
+        .map_err(|err| format!("failed to write ADR file {adr_path:?}: {err}"))?;
 
     Ok((adr_path.to_string_lossy().to_string(), markdown))
 }
@@ -1320,7 +1319,7 @@ mod tests {
             .arg(repo)
             .args(args)
             .output()
-            .map_err(|err| format!("failed to run git {:?}: {err}", args))?;
+            .map_err(|err| format!("failed to run git {args:?}: {err}"))?;
 
         if output.status.success() {
             Ok(())
@@ -1336,7 +1335,7 @@ mod tests {
     fn init_temp_repo() -> Result<PathBuf, String> {
         let root = std::env::temp_dir().join(format!("friction-test-{}", Uuid::new_v4()));
         fs::create_dir_all(&root)
-            .map_err(|err| format!("failed to create temp repo dir {:?}: {err}", root))?;
+            .map_err(|err| format!("failed to create temp repo dir {root:?}: {err}"))?;
 
         let init_main = run_git(&root, &["init", "-b", "main"]);
         if init_main.is_err() {
@@ -1401,15 +1400,15 @@ mod tests {
     fn make_script(dir: &Path, name: &str, content: &str) -> Result<PathBuf, String> {
         let path = dir.join(name);
         fs::write(&path, content)
-            .map_err(|err| format!("failed to write script {:?}: {err}", path))?;
+            .map_err(|err| format!("failed to write script {path:?}: {err}"))?;
 
         let status = Command::new("chmod")
             .arg("+x")
             .arg(&path)
             .status()
-            .map_err(|err| format!("failed to chmod script {:?}: {err}", path))?;
+            .map_err(|err| format!("failed to chmod script {path:?}: {err}"))?;
         if !status.success() {
-            return Err(format!("chmod failed for script {:?}", path));
+            return Err(format!("chmod failed for script {path:?}"));
         }
 
         Ok(path)
@@ -1418,7 +1417,7 @@ mod tests {
     fn setup_fake_phase12_clis() -> Result<(PathBuf, PathBuf, PathBuf, PathBuf), String> {
         let root = std::env::temp_dir().join(format!("friction-cli-phase12-{}", Uuid::new_v4()));
         fs::create_dir_all(&root)
-            .map_err(|err| format!("failed to create fake cli dir {:?}: {err}", root))?;
+            .map_err(|err| format!("failed to create fake cli dir {root:?}: {err}"))?;
 
         let claude_script = r#"#!/usr/bin/env bash
 set -euo pipefail
@@ -1525,7 +1524,7 @@ fi
     ) -> Result<(PathBuf, PathBuf, PathBuf, PathBuf), String> {
         let root = std::env::temp_dir().join(format!("friction-cli-test-{}", Uuid::new_v4()));
         fs::create_dir_all(&root)
-            .map_err(|err| format!("failed to create fake cli dir {:?}: {err}", root))?;
+            .map_err(|err| format!("failed to create fake cli dir {root:?}: {err}"))?;
 
         let claude_script = r#"#!/usr/bin/env bash
 set -euo pipefail
@@ -1585,7 +1584,7 @@ JSON
     ) -> Result<(PathBuf, PathBuf), String> {
         let root = std::env::temp_dir().join(format!("friction-opencode-test-{}", Uuid::new_v4()));
         fs::create_dir_all(&root)
-            .map_err(|err| format!("failed to create fake opencode dir {:?}: {err}", root))?;
+            .map_err(|err| format!("failed to create fake opencode dir {root:?}: {err}"))?;
 
         let script = format!(
             r#"#!/usr/bin/env bash
@@ -1657,12 +1656,8 @@ echo '{{"type":"step_finish","part":{{"type":"step-finish","reason":"stop"}}}}'
     fn setup_fake_opencode_models_cli(lines: &[&str]) -> Result<(PathBuf, PathBuf), String> {
         let root =
             std::env::temp_dir().join(format!("friction-opencode-models-{}", Uuid::new_v4()));
-        fs::create_dir_all(&root).map_err(|err| {
-            format!(
-                "failed to create fake opencode models dir {:?}: {err}",
-                root
-            )
-        })?;
+        fs::create_dir_all(&root)
+            .map_err(|err| format!("failed to create fake opencode models dir {root:?}: {err}"))?;
         let payload = lines.join("\\n");
         let script = format!(
             r#"#!/usr/bin/env bash
@@ -2156,6 +2151,8 @@ exit 2
         let _legacy_mode = EnvVarGuard::set("FRICTION_ENABLE_LEGACY_PROVIDER_MODE", "0");
         let _openai_key = EnvVarGuard::unset("OPENAI_API_KEY");
         let _codex_home = EnvVarGuard::unset("CODEX_HOME");
+        let _unset_openai = EnvVarGuard::unset("OPENAI_API_KEY");
+        let _unset_gemini = EnvVarGuard::unset("GEMINI_API_KEY");
         let temp_home =
             std::env::temp_dir().join(format!("friction-codex-home-missing-{}", Uuid::new_v4()));
         fs::create_dir_all(&temp_home).expect("temp home for missing codex auth should exist");
@@ -3410,8 +3407,7 @@ exit 42
         let leaked: Vec<_> = after.difference(&before).cloned().collect();
         assert!(
             leaked.is_empty(),
-            "strict isolation temp directories should be cleaned up, leaked: {:?}",
-            leaked
+            "strict isolation temp directories should be cleaned up, leaked: {leaked:?}"
         );
 
         let _ = fs::remove_dir_all(root);
