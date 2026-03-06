@@ -1,6 +1,6 @@
 [package]
 name = "friction"
-version = "1.0.3"
+version = "1.0.4"
 description = "Disagreement engine for AI-assisted code"
 authors = ["Friction"]
 license = "MIT"

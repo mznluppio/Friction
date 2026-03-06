@@ -9,8 +9,8 @@ permissions:
   contents: write
 
 jobs:
-  build-macos-silicon:
-    name: Build macOS (Apple Silicon)
+  build-macos:
+    name: Build macOS (universal)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,10 +21,10 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Install Rust target (aarch64)
+      - name: Install Rust targets (universal binary)
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Cache Cargo
         uses: actions/cache@v4
@@ -35,63 +35,21 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             src-tauri/target/
-          key: ${{ runner.os }}-cargo-release-silicon-${{ hashFiles('src-tauri/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-release-universal-${{ hashFiles('src-tauri/Cargo.lock') }}
 
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Build Tauri app (macOS Apple Silicon)
-        run: npx tauri build --target aarch64-apple-darwin
+      - name: Build Tauri app (universal macOS)
+        run: npx tauri build --target universal-apple-darwin
 
-      - name: Upload Apple Silicon artifacts
+      - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: friction-macos-silicon
+          name: friction-macos
           path: |
-            src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
-            src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz
-
-  build-macos-intel:
-    name: Build macOS (Intel)
-    runs-on: macos-13
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install Rust target (x86_64)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-apple-darwin
-
-      - name: Cache Cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            src-tauri/target/
-          key: ${{ runner.os }}-cargo-release-intel-${{ hashFiles('src-tauri/Cargo.lock') }}
-
-      - name: Install npm dependencies
-        run: npm ci
-
-      - name: Build Tauri app (macOS Intel)
-        run: npx tauri build --target x86_64-apple-darwin
-
-      - name: Upload Intel artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: friction-macos-intel
-          path: |
-            src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
-            src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
 
   build-linux:
     name: Build Linux (x86_64)
@@ -187,22 +145,16 @@ jobs:
 
   release:
     name: Create GitHub Release
-    needs: [build-macos-silicon, build-macos-intel, build-linux, build-windows]
+    needs: [build-macos, build-linux, build-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download Apple Silicon artifacts
+      - name: Download macOS artifacts
         uses: actions/download-artifact@v4
         with:
-          name: friction-macos-silicon
-          path: artifacts/macos-silicon
-
-      - name: Download Intel artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: friction-macos-intel
-          path: artifacts/macos-intel
+          name: friction-macos
+          path: artifacts/macos
 
       - name: Download Linux artifacts
         uses: actions/download-artifact@v4
@@ -220,8 +172,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/macos-silicon/**
-            artifacts/macos-intel/**
+            artifacts/macos/**
             artifacts/linux/**
             artifacts/windows/**
           generate_release_notes: true
