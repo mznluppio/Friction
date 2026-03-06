@@ -58,8 +58,16 @@ jobs:
             librsvg2-dev \
             patchelf
 
+      - name: Create frontend dist (required by Tauri compile)
+        run: mkdir -p dist && echo '<!doctype html><html><body></body></html>' > dist/index.html
+
       - name: Run Rust tests
         run: npm run test:backend
+        env:
+          # Satisfy Gemini auth check in strict isolation tests
+          GEMINI_API_KEY: fake-ci-key-for-testing
+          # Satisfy Codex auth check
+          OPENAI_API_KEY: fake-ci-key-for-testing
 
   lint-rust:
     name: Rust lint (clippy + fmt)
@@ -94,6 +102,9 @@ jobs:
             librsvg2-dev \
             patchelf
 
+      - name: Create frontend dist (required by tauri::generate_context!())
+        run: mkdir -p dist && echo '<!doctype html><html><body></body></html>' > dist/index.html
+
       - name: cargo fmt check
         working-directory: src-tauri
         run: cargo fmt --check
@@ -101,3 +112,4 @@ jobs:
       - name: cargo clippy
         working-directory: src-tauri
         run: cargo clippy -- -D warnings
+
