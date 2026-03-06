@@ -1757,25 +1757,6 @@ export default function App() {
     null,
   );
 
-  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
-  const [ollamaModelsLoading, setOllamaModelsLoading] = useState(false);
-
-  useEffect(() => {
-    async function fetchOllama() {
-      setOllamaModelsLoading(true);
-      try {
-        const { ollamaListModels } = await import("./lib/agents/ollama-direct");
-        const models = await ollamaListModels(ollamaHost);
-        setOllamaModels(models);
-      } catch (e) {
-        console.warn("Failed to fetch Ollama models:", e);
-      } finally {
-        setOllamaModelsLoading(false);
-      }
-    }
-    void fetchOllama();
-  }, [ollamaHost]);
-
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmIntent, setConfirmIntent] = useState<ConfirmIntent | null>(
     null,

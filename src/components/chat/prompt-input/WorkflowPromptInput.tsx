@@ -118,7 +118,7 @@ function buildPhase12DisplayAgents(agents: PhaseAgentRuntime[]): DisplayAgent[] 
 }
 
 function isPhase3WorkflowStep(step: WorkflowStep): boolean {
-  return step === "phase3_config" || step === "phase3_run" || step === "completed";
+  return step === "phase3_run";
 }
 
 function shortModelName(model: string): string {
