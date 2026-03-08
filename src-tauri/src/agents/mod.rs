@@ -18,79 +18,79 @@ use tokio::io::AsyncReadExt;
 use tokio::process::Command as TokioCommand;
 use uuid::Uuid;
 
-const SYSTEM_ARCHITECT: &str = r#"Tu es \"L'Architecte\" — un ingénieur senior obsédé par la clarté des specs, la maintenabilité long-terme, et les edge cases. Tu es prudent, tu questionnes les hypothèses implicites, tu identifies ce qui manque dans un requirement avant de coder.
+const SYSTEM_ARCHITECT: &str = r#"You are "The Architect" — a senior engineer obsessed with specification clarity, long-term maintainability, and edge cases. You are cautious, you question implicit assumptions, and you identify what is missing in a requirement before coding.
 
-Quand tu reçois un requirement, réponds UNIQUEMENT en JSON valide avec cette structure exacte:
+When you receive a requirement, reply ONLY in valid JSON with this exact structure:
 {
-  \"interpretation\": \"Comment tu comprends le requirement en 2-3 phrases\",
-  \"assumptions\": [\"hypothèse implicite 1\", \"hypothèse implicite 2\", \"hypothèse implicite 3\"],
-  \"risks\": [\"risque ou edge case 1\", \"risque ou edge case 2\"],
-  \"questions\": [\"question critique 1\", \"question critique 2\"],
-  \"approach\": \"Ton approche technique en 2-3 phrases\"
+  "interpretation": "How you understand the requirement in 2-3 sentences",
+  "assumptions": ["implicit assumption 1", "implicit assumption 2", "implicit assumption 3"],
+  "risks": ["risk or edge case 1", "risk or edge case 2"],
+  "questions": ["critical question 1", "critical question 2"],
+  "approach": "Your technical approach in 2-3 sentences"
 }"#;
 
-const SYSTEM_PRAGMATIST: &str = r#"Tu es \"Le Pragmatiste\" — un dev qui ship vite, qui pense MVP, qui évite la sur-ingénierie. Tu prends les requirements au pied de la lettre, tu trouves la solution la plus simple qui fonctionne, tu ne te perds pas dans des cas hypothétiques.
+const SYSTEM_PRAGMATIST: &str = r#"You are "The Pragmatist" — a dev who ships fast, thinks MVP, and avoids over-engineering. You take requirements literally, you find the simplest solution that works, and you do not get lost in hypothetical cases.
 
-Quand tu reçois un requirement, réponds UNIQUEMENT en JSON valide avec cette structure exacte:
+When you receive a requirement, reply ONLY in valid JSON with this exact structure:
 {
-  \"interpretation\": \"Comment tu comprends le requirement en 2-3 phrases\",
-  \"assumptions\": [\"hypothèse implicite 1\", \"hypothèse implicite 2\", \"hypothèse implicite 3\"],
-  \"risks\": [\"risque ou edge case 1\", \"risque ou edge case 2\"],
-  \"questions\": [\"question critique 1\", \"question critique 2\"],
-  \"approach\": \"Ton approche technique en 2-3 phrases\"
+  "interpretation": "How you understand the requirement in 2-3 sentences",
+  "assumptions": ["implicit assumption 1", "implicit assumption 2", "implicit assumption 3"],
+  "risks": ["risk or edge case 1", "risk or edge case 2"],
+  "questions": ["critical question 1", "critical question 2"],
+  "approach": "Your technical approach in 2-3 sentences"
 }"#;
 
-const SYSTEM_ARCHITECT_PLAN: &str = r#"Tu es \"L'Architecte\" — ingénieur senior, rigoureux, orienté maintenabilité et robustesse.
+const SYSTEM_ARCHITECT_PLAN: &str = r#"You are "The Architect" — a rigorous senior engineer focused on maintainability and robustness.
 
-Tu reçois un problem statement original + des clarifications du client. Produis un brief d'approche détaillé, utile pour réfléchir à un bug, une décision, une hypothèse ou une investigation.
-Réponds UNIQUEMENT en JSON valide:
+You receive an original problem statement + client clarifications. Produce a detailed approach brief, useful for thinking through a bug, a decision, an assumption, or an investigation.
+Reply ONLY in valid JSON:
 {
-  \"problem_read\": \"Comment tu cadres le problème en 2-4 phrases\",
-  \"main_hypothesis\": \"Hypothèse ou angle principal retenu\",
-  \"strategy\": \"Stratégie d'investigation ou de résolution en 3-4 phrases\",
-  \"tradeoffs\": [\"tradeoff ou décision clé 1\", \"tradeoff ou décision clé 2\"],
-  \"next_steps\": [\"prochaine étape 1\", \"prochaine étape 2\", \"prochaine étape 3\"],
-  \"risks\": [\"risque ouvert 1\", \"risque ouvert 2\"],
-  \"open_questions\": [\"question ouverte 1\", \"question ouverte 2\"]
+  "problem_read": "How you frame the problem in 2-4 sentences",
+  "main_hypothesis": "Main hypothesis or chosen angle",
+  "strategy": "Investigation or resolution strategy in 3-4 sentences",
+  "tradeoffs": ["key tradeoff or decision 1", "key tradeoff or decision 2"],
+  "next_steps": ["next step 1", "next step 2", "next step 3"],
+  "risks": ["open risk 1", "open risk 2"],
+  "open_questions": ["open question 1", "open question 2"]
 }"#;
 
-const SYSTEM_PRAGMATIST_PLAN: &str = r#"Tu es \"Le Pragmatiste\" — dev orienté livraison rapide, MVP, simplicité.
+const SYSTEM_PRAGMATIST_PLAN: &str = r#"You are "The Pragmatist" — a dev oriented towards fast delivery, MVP, and simplicity.
 
-Tu reçois un problem statement original + des clarifications du client. Produis un brief d'approche concis et actionnable.
-Réponds UNIQUEMENT en JSON valide:
+You receive an original problem statement + client clarifications. Produce a concise and actionable approach brief.
+Reply ONLY in valid JSON:
 {
-  \"problem_read\": \"Comment tu cadres le problème en 2-4 phrases\",
-  \"main_hypothesis\": \"Hypothèse ou angle principal retenu\",
-  \"strategy\": \"Stratégie d'investigation ou de résolution en 3-4 phrases\",
-  \"tradeoffs\": [\"tradeoff ou décision clé 1\", \"tradeoff ou décision clé 2\"],
-  \"next_steps\": [\"prochaine étape 1\", \"prochaine étape 2\", \"prochaine étape 3\"],
-  \"risks\": [\"risque ouvert 1\", \"risque ouvert 2\"],
-  \"open_questions\": [\"question ouverte 1\", \"question ouverte 2\"]
+  "problem_read": "How you frame the problem in 2-4 sentences",
+  "main_hypothesis": "Main hypothesis or chosen angle",
+  "strategy": "Investigation or resolution strategy in 3-4 sentences",
+  "tradeoffs": ["key tradeoff or decision 1", "key tradeoff or decision 2"],
+  "next_steps": ["next step 1", "next step 2", "next step 3"],
+  "risks": ["open risk 1", "open risk 2"],
+  "open_questions": ["open question 1", "open question 2"]
 }"#;
 
-const SYSTEM_ADDITIONAL_ANALYST: &str = r#"Tu es un agent d'analyse indépendant. Tu dois apporter un angle distinct (risques cachés, coûts, exploitation ou robustesse), sans répéter les autres.
+const SYSTEM_ADDITIONAL_ANALYST: &str = r#"You are an independent analysis agent. You must bring a distinct angle (hidden risks, costs, operation footprint, or robustness), without repeating the others.
 
-Quand tu reçois un requirement, réponds UNIQUEMENT en JSON valide avec cette structure exacte:
+When you receive a requirement, reply ONLY in valid JSON with this exact structure:
 {
-  \"interpretation\": \"Comment tu comprends le requirement en 2-3 phrases\",
-  \"assumptions\": [\"hypothèse implicite 1\", \"hypothèse implicite 2\", \"hypothèse implicite 3\"],
-  \"risks\": [\"risque ou edge case 1\", \"risque ou edge case 2\"],
-  \"questions\": [\"question critique 1\", \"question critique 2\"],
-  \"approach\": \"Ton approche technique en 2-3 phrases\"
+  "interpretation": "How you understand the requirement in 2-3 sentences",
+  "assumptions": ["implicit assumption 1", "implicit assumption 2", "implicit assumption 3"],
+  "risks": ["risk or edge case 1", "risk or edge case 2"],
+  "questions": ["critical question 1", "critical question 2"],
+  "approach": "Your technical approach in 2-3 sentences"
 }"#;
 
-const SYSTEM_ADDITIONAL_PLANNER: &str = r#"Tu es un agent de planification indépendant. Tu dois proposer un brief d'approche distinct et concret avec un angle complémentaire (performance, sécurité, opérations, coût).
+const SYSTEM_ADDITIONAL_PLANNER: &str = r#"You are an independent planning agent. You must propose a distinct and concrete approach brief with a complementary angle (performance, security, operations, cost).
 
-Tu reçois un problem statement original + des clarifications du client. Produis un brief d'approche détaillé.
-Réponds UNIQUEMENT en JSON valide:
+You receive an original problem statement + client clarifications. Produce a detailed approach brief.
+Reply ONLY in valid JSON:
 {
-  \"problem_read\": \"Comment tu cadres le problème en 2-4 phrases\",
-  \"main_hypothesis\": \"Hypothèse ou angle principal retenu\",
-  \"strategy\": \"Stratégie d'investigation ou de résolution en 3-4 phrases\",
-  \"tradeoffs\": [\"tradeoff ou décision clé 1\", \"tradeoff ou décision clé 2\"],
-  \"next_steps\": [\"prochaine étape 1\", \"prochaine étape 2\", \"prochaine étape 3\"],
-  \"risks\": [\"risque ouvert 1\", \"risque ouvert 2\"],
-  \"open_questions\": [\"question ouverte 1\", \"question ouverte 2\"]
+  "problem_read": "How you frame the problem in 2-4 sentences",
+  "main_hypothesis": "Main hypothesis or chosen angle",
+  "strategy": "Investigation or resolution strategy in 3-4 sentences",
+  "tradeoffs": ["key tradeoff or decision 1", "key tradeoff or decision 2"],
+  "next_steps": ["next step 1", "next step 2", "next step 3"],
+  "risks": ["open risk 1", "open risk 2"],
+  "open_questions": ["open question 1", "open question 2"]
 }"#;
 
 const AGENT_A_CLI_PROMPT: &str = r#"You are Agent A in an adversarial validation workflow.
@@ -176,6 +176,18 @@ pub struct CliCommandLogEvent {
     pub timestamp: String,
 }
 
+pub const PERSONA_ARTIFACT_EVENT_NAME: &str = "friction://persona-artifact";
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonaArtifactEvent {
+    pub request_id: String,
+    pub phase: u8,
+    pub agent_id: String,
+    pub agent_label: String,
+    pub persona_content: String,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Phase12CliLogKind {
@@ -220,6 +232,7 @@ pub struct Phase12CliLogEvent {
 
 pub type CliCommandLogEmitter = Arc<dyn Fn(CliCommandLogEvent) + Send + Sync>;
 pub type Phase12CliLogEmitter = Arc<dyn Fn(Phase12CliLogEvent) + Send + Sync>;
+pub type PersonaArtifactEmitter = Arc<dyn Fn(PersonaArtifactEvent) + Send + Sync>;
 
 #[derive(Clone)]
 pub struct Phase12CliRunContext {
@@ -227,6 +240,7 @@ pub struct Phase12CliRunContext {
     pub phase: u8,
     pub emitter: CliCommandLogEmitter,
     pub legacy_phase12_emitter: Option<Phase12CliLogEmitter>,
+    pub persona_artifact_emitter: Option<PersonaArtifactEmitter>,
 }
 
 #[derive(Clone)]
@@ -238,6 +252,7 @@ pub struct Phase12CliAgentContext {
     pub agent_cli: String,
     pub emitter: CliCommandLogEmitter,
     pub legacy_phase12_emitter: Option<Phase12CliLogEmitter>,
+    pub persona_artifact_emitter: Option<PersonaArtifactEmitter>,
 }
 
 #[derive(Clone, Copy)]
@@ -258,18 +273,10 @@ enum AgentRole {
 }
 
 #[derive(Debug, Clone)]
-enum ProviderKind {
-    Mock,
-    Anthropic { api_key: String },
-    OpenAi { api_key: String },
-    Ollama { host: String },
-}
-
-#[derive(Debug, Clone)]
 struct RuntimeAgent {
-    pub model: String,
+    pub model: Option<String>,
     pub role: AgentRole,
-    pub provider: ProviderKind,
+    pub cli: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -806,183 +813,75 @@ fn validate_agent_plan_content(plan: &AgentPlan) -> Result<(), String> {
 }
 
 impl RuntimeAgent {
-    async fn analyze_requirement(&self, requirement: &str) -> Result<AgentResponse, String> {
-        match &self.provider {
-            ProviderKind::Mock => Ok(mock_response(self.role, requirement)),
-            _ => {
-                let raw = self
-                    .call_provider(self.role.analysis_prompt(), requirement)
-                    .await?;
-                let response = parse_json_payload::<AgentResponse>(&raw)?;
-                validate_agent_response_content(&response)
-                    .map_err(|err| format!("Provider response invalid: {err}"))?;
-                Ok(response)
-            }
+    async fn analyze_requirement(
+        &self,
+        requirement: &str,
+        runtime_config: Option<&RuntimeConfigInput>,
+    ) -> Result<AgentResponse, String> {
+        if self.cli == "mock" {
+            return Ok(mock_response(self.role, requirement));
         }
+
+        let label = format!("{:?} analysis", self.role);
+        let prompt = format!(
+            "{}\n\nRequirement original:\n{requirement}\n\nRéponds avec exactement un objet JSON valide qui respecte le schéma demandé. N'appelle aucun outil (tool/function/question/webfetch). Aucun markdown, aucun texte hors JSON.",
+            self.role.analysis_prompt()
+        );
+
+        let raw = run_agent_cli(
+            &self.cli,
+            self.model.as_deref(),
+            &prompt,
+            ".",
+            None,
+            &label,
+            runtime_config,
+            CliExecutionIsolationMode::StrictPhase12,
+            None,
+            None,
+        )
+        .await?;
+
+        let response = parse_json_payload::<AgentResponse>(&raw)?;
+        validate_agent_response_content(&response)
+            .map_err(|err| format!("Provider response invalid: {err}"))?;
+        Ok(response)
     }
 
     async fn build_plan(
         &self,
         requirement: &str,
         clarifications: &str,
+        runtime_config: Option<&RuntimeConfigInput>,
     ) -> Result<AgentPlan, String> {
-        match &self.provider {
-            ProviderKind::Mock => Ok(mock_plan(self.role, requirement, clarifications)),
-            _ => {
-                let user_payload = format!(
-                    "Requirement original: {requirement}\n\nClarifications du client:\n{clarifications}"
-                );
-                let raw = self
-                    .call_provider(self.role.plan_prompt(), &user_payload)
-                    .await?;
-                let plan = normalize_agent_plan(parse_json_payload::<AgentPlan>(&raw)?);
-                validate_agent_plan_content(&plan)
-                    .map_err(|err| format!("Provider response invalid: {err}"))?;
-                Ok(plan)
-            }
+        if self.cli == "mock" {
+            return Ok(mock_plan(self.role, requirement, clarifications));
         }
-    }
 
-    async fn call_provider(
-        &self,
-        system_prompt: &str,
-        user_prompt: &str,
-    ) -> Result<String, String> {
-        let client = reqwest::Client::new();
+        let label = format!("{:?} plan", self.role);
+        let prompt = format!(
+            "{}\n\nRequirement original: {requirement}\n\nClarifications du client:\n{clarifications}\n\nRéponds avec exactement un objet JSON valide. N'appelle aucun outil. Aucun texte hors JSON.",
+            self.role.plan_prompt()
+        );
 
-        match &self.provider {
-            ProviderKind::Anthropic { api_key } => {
-                let response = client
-                    .post("https://api.anthropic.com/v1/messages")
-                    .header("x-api-key", api_key)
-                    .header("anthropic-version", "2023-06-01")
-                    .header(CONTENT_TYPE, "application/json")
-                    .json(&serde_json::json!({
-                        "model": self.model,
-                        "max_tokens": 1600,
-                        "temperature": 0.2,
-                        "system": system_prompt,
-                        "messages": [
-                            { "role": "user", "content": user_prompt }
-                        ]
-                    }))
-                    .send()
-                    .await
-                    .map_err(|err| format!("Anthropic request failed: {err}"))?;
+        let raw = run_agent_cli(
+            &self.cli,
+            self.model.as_deref(),
+            &prompt,
+            ".",
+            None,
+            &label,
+            runtime_config,
+            CliExecutionIsolationMode::StrictPhase12,
+            None,
+            None,
+        )
+        .await?;
 
-                let status = response.status();
-                let payload: Value = response
-                    .json()
-                    .await
-                    .map_err(|err| format!("Anthropic JSON decode failed: {err}"))?;
-
-                if !status.is_success() {
-                    return Err(format!("Anthropic error ({status}): {payload}"));
-                }
-
-                let text = payload
-                    .get("content")
-                    .and_then(Value::as_array)
-                    .map(|items| {
-                        items
-                            .iter()
-                            .filter_map(|item| item.get("text").and_then(Value::as_str))
-                            .collect::<Vec<_>>()
-                            .join("\n")
-                    })
-                    .unwrap_or_default();
-
-                if text.trim().is_empty() {
-                    return Err("Anthropic returned empty text content".to_string());
-                }
-
-                Ok(text)
-            }
-            ProviderKind::OpenAi { api_key } => {
-                let response = client
-                    .post("https://api.openai.com/v1/chat/completions")
-                    .header(AUTHORIZATION, format!("Bearer {api_key}"))
-                    .header(CONTENT_TYPE, "application/json")
-                    .json(&serde_json::json!({
-                        "model": self.model,
-                        "temperature": 0.2,
-                        "messages": [
-                            { "role": "system", "content": system_prompt },
-                            { "role": "user", "content": user_prompt }
-                        ]
-                    }))
-                    .send()
-                    .await
-                    .map_err(|err| format!("OpenAI request failed: {err}"))?;
-
-                let status = response.status();
-                let payload: Value = response
-                    .json()
-                    .await
-                    .map_err(|err| format!("OpenAI JSON decode failed: {err}"))?;
-
-                if !status.is_success() {
-                    return Err(format!("OpenAI error ({status}): {payload}"));
-                }
-
-                let text = payload
-                    .get("choices")
-                    .and_then(Value::as_array)
-                    .and_then(|choices| choices.first())
-                    .and_then(|choice| choice.get("message"))
-                    .and_then(|message| message.get("content"))
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-
-                if text.trim().is_empty() {
-                    return Err("OpenAI returned empty message content".to_string());
-                }
-
-                Ok(text)
-            }
-            ProviderKind::Ollama { host } => {
-                let endpoint = format!("{}/api/chat", host.trim_end_matches('/'));
-                let response = client
-                    .post(endpoint)
-                    .header(CONTENT_TYPE, "application/json")
-                    .json(&serde_json::json!({
-                        "model": self.model,
-                        "stream": false,
-                        "messages": [
-                            { "role": "system", "content": system_prompt },
-                            { "role": "user", "content": user_prompt }
-                        ]
-                    }))
-                    .send()
-                    .await
-                    .map_err(|err| format!("Ollama request failed: {err}"))?;
-
-                let status = response.status();
-                let payload: Value = response
-                    .json()
-                    .await
-                    .map_err(|err| format!("Ollama JSON decode failed: {err}"))?;
-
-                if !status.is_success() {
-                    return Err(format!("Ollama error ({status}): {payload}"));
-                }
-
-                let text = payload
-                    .get("message")
-                    .and_then(|message| message.get("content"))
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-
-                if text.trim().is_empty() {
-                    return Err("Ollama returned empty message content".to_string());
-                }
-
-                Ok(text)
-            }
-            ProviderKind::Mock => Err("Mock provider does not call remote APIs".to_string()),
-        }
+        let plan = normalize_agent_plan(parse_json_payload::<AgentPlan>(&raw)?);
+        validate_agent_plan_content(&plan)
+            .map_err(|err| format!("Provider response invalid: {err}"))?;
+        Ok(plan)
     }
 }
 
@@ -993,8 +892,8 @@ pub async fn analyze_dual(
     let (architect, pragmatist) = runtime_agents(runtime_config)?;
 
     let (arch_result, prag_result) = tokio::join!(
-        architect.analyze_requirement(requirement),
-        pragmatist.analyze_requirement(requirement)
+        architect.analyze_requirement(requirement, runtime_config),
+        pragmatist.analyze_requirement(requirement, runtime_config)
     );
 
     Ok((arch_result?, prag_result?))
@@ -1008,8 +907,8 @@ pub async fn plan_dual(
     let (architect, pragmatist) = runtime_agents(runtime_config)?;
 
     let (arch_result, prag_result) = tokio::join!(
-        architect.build_plan(requirement, clarifications),
-        pragmatist.build_plan(requirement, clarifications)
+        architect.build_plan(requirement, clarifications, runtime_config),
+        pragmatist.build_plan(requirement, clarifications, runtime_config)
     );
 
     Ok((arch_result?, prag_result?))
@@ -1090,7 +989,7 @@ fn analysis_prompt_for_agent(
         _ => SYSTEM_ADDITIONAL_ANALYST,
     };
     format!(
-        "{system}\n\nAgent label: {}\nRequirement original:\n{requirement}\n\nRéponds avec exactement un objet JSON valide qui respecte le schéma demandé. N'appelle aucun outil (tool/function/question/webfetch). Aucun markdown, aucun texte hors JSON.",
+        "{system}\n\nAgent label: {}\nOriginal requirement:\n{requirement}\n\nRespond with exactly one valid JSON object that adheres to the requested schema. Do not call any tools (tool/function/question/webfetch). No markdown fences, no text outside of JSON.",
         agent.label
     )
 }
@@ -1107,7 +1006,7 @@ fn plan_prompt_for_agent(
         _ => SYSTEM_ADDITIONAL_PLANNER,
     };
     format!(
-        "{system}\n\nAgent label: {}\nRequirement original: {requirement}\n\nClarifications du client:\n{clarifications}\n\nRéponds avec exactement un objet JSON valide qui respecte le schéma demandé. N'appelle aucun outil (tool/function/question/webfetch). Aucun markdown, aucun texte hors JSON.",
+        "{system}\n\nAgent label: {}\nOriginal requirement: {requirement}\n\nClient clarifications:\n{clarifications}\n\nRespond with exactly one valid JSON object that adheres to the requested schema. Do not call any tools (tool/function/question/webfetch). No markdown fences, no text outside of JSON.",
         agent.label
     )
 }
@@ -1129,6 +1028,7 @@ pub async fn analyze_multi_via_cli(
             agent_cli: agent.cli.clone(),
             emitter: Arc::clone(&context.emitter),
             legacy_phase12_emitter: context.legacy_phase12_emitter.clone(),
+            persona_artifact_emitter: context.persona_artifact_emitter.clone(),
         });
         let prompt = analysis_prompt_for_agent(agent, index, requirement);
         let label = format!("{} CLI phase1 analysis", agent.label);
@@ -1148,6 +1048,7 @@ pub async fn analyze_multi_via_cli(
             runtime_config,
             CliExecutionIsolationMode::StrictPhase12,
             phase12_agent_context.as_ref(),
+            Some(requirement),
         )
         .await?;
         let response = match parse_and_validate(&raw) {
@@ -1165,6 +1066,7 @@ pub async fn analyze_multi_via_cli(
                     runtime_config,
                     CliExecutionIsolationMode::StrictPhase12,
                     phase12_agent_context.as_ref(),
+                    None,
                 )
                 .await?;
                 match parse_and_validate(&retry_raw) {
@@ -1209,6 +1111,67 @@ pub async fn analyze_multi_via_cli(
         });
     }
 
+    // --- EXPERIMENTAL: Multi-Turn Cross-Examination Debate ---
+    // Instead of immediately returning the initial outputs, we make the agents critique each other
+    // to force a sharper disagreement on assumptions and risks.
+    if outputs.len() >= 2 {
+        for index in 0..outputs.len() {
+            let opponent_index = if index == 0 { 1 } else { 0 };
+            let current_agent = &phase_agents[index];
+            let opponent = &outputs[opponent_index];
+    
+            let critique_prompt = format!(
+                "You are Agent {}.\n\
+                You just produced an initial analysis of the requirement.\n\
+                However, your opponent (Agent {}) has produced a DIFFERENT analysis.\n\
+                Here is your opponent's approach:\n{}\n\n\
+                Your opponent's assumptions:\n{:-?}\n\n\
+                Your task: CROSS-EXAMINE your opponent. Find the flaws, overlooked risks, or naive assumptions in their approach. \
+                Update YOUR OWN JSON to explicitly counter their points and double-down on your perspective.\n\
+                Original requirement: {requirement}\n\n\
+                Respond with exactly one valid JSON object that adheres to the requested schema. Do not call any tools. No markdown.",
+                current_agent.label,
+                opponent.label,
+                opponent.response.approach,
+                opponent.response.assumptions
+            );
+    
+            let label = format!("{} CLI phase1 debate-critique", current_agent.label);
+            let phase12_agent_context = phase12_run_context.map(|context| Phase12CliAgentContext {
+                request_id: context.request_id.clone(),
+                phase: context.phase,
+                agent_id: current_agent.id.clone(),
+                agent_label: current_agent.label.clone(),
+                agent_cli: current_agent.cli.clone(),
+                emitter: Arc::clone(&context.emitter),
+                legacy_phase12_emitter: context.legacy_phase12_emitter.clone(),
+                persona_artifact_emitter: context.persona_artifact_emitter.clone(),
+            });
+    
+            if let Ok(raw) = run_agent_cli(
+                &current_agent.cli,
+                Some(current_agent.id.as_str()),
+                &critique_prompt,
+                ".",
+                None,
+                &label,
+                runtime_config,
+                CliExecutionIsolationMode::StrictPhase12,
+                phase12_agent_context.as_ref(),
+                Some(requirement),
+            )
+            .await {
+                if let Ok(updated_response) = parse_json_payload::<AgentResponse>(&raw) {
+                    if validate_agent_response_content(&updated_response).is_ok() {
+                        // Override the initial output with the post-debate hardened output
+                        outputs[index].response = updated_response;
+                    }
+                }
+            }
+        }
+    }
+    // --- END DEBATE ---
+
     Ok(outputs)
 }
 
@@ -1230,6 +1193,7 @@ pub async fn plan_multi_via_cli(
             agent_cli: agent.cli.clone(),
             emitter: Arc::clone(&context.emitter),
             legacy_phase12_emitter: context.legacy_phase12_emitter.clone(),
+            persona_artifact_emitter: context.persona_artifact_emitter.clone(),
         });
         let prompt = plan_prompt_for_agent(agent, index, requirement, clarifications);
         let label = format!("{} CLI phase2 planning", agent.label);
@@ -1248,6 +1212,7 @@ pub async fn plan_multi_via_cli(
             runtime_config,
             CliExecutionIsolationMode::StrictPhase12,
             phase12_agent_context.as_ref(),
+            None,
         )
         .await?;
         let plan = match parse_and_validate(&raw) {
@@ -1265,6 +1230,7 @@ pub async fn plan_multi_via_cli(
                     runtime_config,
                     CliExecutionIsolationMode::StrictPhase12,
                     phase12_agent_context.as_ref(),
+                    None,
                 )
                 .await?;
                 match parse_and_validate(&retry_raw) {
@@ -1333,6 +1299,7 @@ pub async fn generate_candidate_via_cli(
         agent_cli: agent_a_cli.to_string(),
         emitter: Arc::clone(&context.emitter),
         legacy_phase12_emitter: context.legacy_phase12_emitter.clone(),
+        persona_artifact_emitter: context.persona_artifact_emitter.clone(),
     });
     let raw = run_agent_cli(
         agent_a_cli,
@@ -1344,6 +1311,7 @@ pub async fn generate_candidate_via_cli(
         runtime_config,
         CliExecutionIsolationMode::SharedWorktree,
         phase12_agent_context.as_ref(),
+        None,
     )
     .await?;
 
@@ -2956,6 +2924,7 @@ pub async fn generate_attack_report_via_cli(
         agent_cli: reviewer_cli.to_string(),
         emitter: Arc::clone(&context.emitter),
         legacy_phase12_emitter: context.legacy_phase12_emitter.clone(),
+        persona_artifact_emitter: context.persona_artifact_emitter.clone(),
     });
     let raw = run_agent_cli(
         reviewer_cli,
@@ -2967,6 +2936,7 @@ pub async fn generate_attack_report_via_cli(
         runtime_config,
         CliExecutionIsolationMode::SharedWorktree,
         phase12_agent_context.as_ref(),
+        None,
     )
     .await?;
     if raw.is_empty() {
@@ -2982,6 +2952,62 @@ pub async fn generate_attack_report_via_cli(
     Ok((parsed.attack_report, raw))
 }
 
+async fn inject_dynamic_skill_file(
+    workdir: &Path,
+    label: &str,
+    requirement: &str,
+    phase12_agent_context: Option<&Phase12CliAgentContext>,
+) -> Result<(), String> {
+    // Determine the base persona dynamically. For MVP, we provide two starkly polarized generic skills.
+    let persona_content = if label.to_lowercase().contains("architect") || label == "Agent A" {
+        format!(
+            "# Context: {label} (Strategic Mindset)\n\n\
+            You have been summoned to resolve the following requirement:\n\
+            \"\"\"\n{requirement}\n\"\"\"\n\n\
+            **Your Primary Directives:**\n\
+            1. You are a paranoid, long-term thinker.\n\
+            2. You must assume the requirement is incomplete. Look for edge cases, scaling issues, and maintenance debt.\n\
+            3. Push back strongly on anything that seems like a quick hack.\n\
+            \n\
+            **CRITICAL:** You must follow these constraints explicitly while fulfilling the rest of your system prompt."
+        )
+    } else {
+        format!(
+            "# Context: {label} (Pragmatic Executioner)\n\n\
+            You have been summoned to resolve the following requirement:\n\
+            \"\"\"\n{requirement}\n\"\"\"\n\n\
+            **Your Primary Directives:**\n\
+            1. You are a speed-focused, MVP-driven hacker.\n\
+            2. You must assume maximum velocity is the goal. Avoid over-engineering entirely.\n\
+            3. Do the absolute minimum to solve the core requirement securely and stop.\n\
+            \n\
+            **CRITICAL:** You must follow these constraints explicitly while fulfilling the rest of your system prompt."
+        )
+    };
+
+    let filename = format!(".friction_persona.md");
+    let target = workdir.join(&filename);
+    tokio::fs::write(&target, &persona_content)
+        .await
+        .map_err(|e| format!("IO Error writing {}: {}", filename, e))?;
+
+    // Broadcast the generated Persona as an artifact to the frontend if running in an instrumented context
+    if let Some(context) = phase12_agent_context {
+        if let Some(emitter) = &context.persona_artifact_emitter {
+            let event_payload = PersonaArtifactEvent {
+                request_id: context.request_id.clone(),
+                phase: context.phase,
+                agent_id: context.agent_id.clone(),
+                agent_label: context.agent_label.clone(),
+                persona_content,
+            };
+            emitter(event_payload);
+        }
+    }
+
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn run_agent_cli(
     agent_cli: &str,
@@ -2993,6 +3019,7 @@ pub async fn run_agent_cli(
     runtime_config: Option<&RuntimeConfigInput>,
     isolation_mode: CliExecutionIsolationMode,
     phase12_agent_context: Option<&Phase12CliAgentContext>,
+    requirement: Option<&str>,
 ) -> Result<String, String> {
     let mut capture_path: Option<PathBuf> = None;
     let mut extra_environment: Vec<(String, String)> = Vec::new();
@@ -3000,6 +3027,27 @@ pub async fn run_agent_cli(
     let mut fallback_args_on_error: Option<Vec<String>> = None;
     let execution_context =
         prepare_cli_execution_context(workdir, capture_base_dir, isolation_mode)?;
+
+    // 1. Generate and inject the dynamic Skill Persona based on the requirement.
+    let mut final_prompt = prompt.to_string();
+    if let Some(req) = requirement {
+        if let Err(err) = inject_dynamic_skill_file(&execution_context.workdir, label, req, phase12_agent_context).await {
+            println!("Warning: failed to inject skill file for {label}: {err}");
+        } else {
+            final_prompt = format!(
+                "CRITICAL SETUP: Read the `.friction_persona.md` file in this directory immediately. \
+                 You must deeply internalize its constraints and personality before proceeding. \
+                 Adopt the persona described completely. Do not mention that you read the file.\n\n\
+                 {prompt}"
+            );
+        }
+    }
+
+    // Generate dynamic context files (e.g., CLAUDE.md, GEMINI.md, .friction-context.md)
+    if let Err(err) = inject_agent_context_file(&execution_context.workdir, agent_cli, &final_prompt) {
+        println!("Warning: failed to inject agent context file: {err}");
+    }
+
     let command_resolution = resolve_cli_command(agent_cli, runtime_config)?;
     let command = command_resolution.command.clone();
     let command_source = command_resolution.source.clone();
@@ -3013,7 +3061,7 @@ pub async fn run_agent_cli(
                 args.push(model.clone());
             }
             args.push("-p".to_string());
-            args.push(prompt.to_string());
+            args.push(final_prompt.clone());
             (command, args)
         }
         "codex" => {
@@ -3059,7 +3107,7 @@ pub async fn run_agent_cli(
                 }
                 args.push("-o".to_string());
                 args.push(output_path.to_string_lossy().to_string());
-                args.push(prompt.to_string());
+                args.push(final_prompt.clone());
                 args
             })
         }
@@ -3094,7 +3142,7 @@ pub async fn run_agent_cli(
             }
             let mut args = vec![
                 "-p".to_string(),
-                prompt.to_string(),
+                final_prompt.clone(),
                 "--output-format".to_string(),
                 "stream-json".to_string(),
             ];
@@ -3102,7 +3150,7 @@ pub async fn run_agent_cli(
                 args.push("--model".to_string());
                 args.push(model.clone());
             }
-            let mut text_fallback_args = vec!["-p".to_string(), prompt.to_string()];
+            let mut text_fallback_args = vec!["-p".to_string(), final_prompt.clone()];
             if let Some(model) = model_resolution.model.as_ref() {
                 text_fallback_args.push("--model".to_string());
                 text_fallback_args.push(model.clone());
@@ -3138,7 +3186,7 @@ pub async fn run_agent_cli(
                 args.push("--model".to_string());
                 args.push(model.clone());
             }
-            args.push(prompt.to_string());
+            args.push(final_prompt.clone());
             (command, args)
         }
         unsupported => {
@@ -3259,6 +3307,31 @@ fn is_gemini_stream_json_not_supported_error(error: &str) -> bool {
             || normalized.contains("unexpected")))
         || (normalized.contains("stream-json")
             && (normalized.contains("invalid") || normalized.contains("unknown")))
+}
+
+fn inject_agent_context_file(workdir: &Path, agent_cli: &str, prompt: &str) -> std::io::Result<()> {
+    match agent_cli {
+        "claude" => {
+            let path = workdir.join("CLAUDE.md");
+            fs::write(path, prompt)?;
+        }
+        "gemini" => {
+            let path = workdir.join("GEMINI.md");
+            fs::write(path, prompt)?;
+        }
+        _ => {
+            let path = workdir.join(".friction-context.md");
+            fs::write(path, prompt)?;
+        }
+    }
+    
+    // Always write a fallback standard context file just in case.
+    let standard_path = workdir.join(".friction-context.md");
+    if !standard_path.exists() {
+        let _ = fs::write(standard_path, prompt);
+    }
+    
+    Ok(())
 }
 
 fn prepare_cli_execution_context(
@@ -4213,7 +4286,7 @@ fn runtime_agents(
 fn build_agent_from_env(
     role: AgentRole,
     runtime_override: Option<&RuntimeAgentInput>,
-    ollama_host_override: Option<&str>,
+    _ollama_host_override: Option<&str>,
     provider_key: &str,
     model_key: &str,
     default_provider: &str,
@@ -4227,30 +4300,21 @@ fn build_agent_from_env(
     let model = runtime_override
         .and_then(|item| item.model.as_ref().cloned())
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| env::var(model_key).unwrap_or_else(|_| default_model.to_string()));
-    let provider = match provider_value.as_str() {
-        "mock" => ProviderKind::Mock,
-        "anthropic" => {
-            let key = env::var("ANTHROPIC_API_KEY")
-                .map_err(|_| "ANTHROPIC_API_KEY is missing for anthropic provider".to_string())?;
-            ProviderKind::Anthropic { api_key: key }
-        }
-        "openai" => {
-            let key = env::var("OPENAI_API_KEY")
-                .map_err(|_| "OPENAI_API_KEY is missing for openai provider".to_string())?;
-            ProviderKind::OpenAi { api_key: key }
-        }
-        "ollama" => {
-            let host = ollama_host_override
-                .map(str::to_string)
-                .or_else(|| env::var("OLLAMA_HOST").ok())
-                .or_else(|| env::var("FRICTION_OLLAMA_HOST").ok())
-                .unwrap_or_else(|| "http://localhost:11434".to_string());
-            ProviderKind::Ollama { host }
-        }
+        .or_else(|| env::var(model_key).ok().filter(|v| !v.trim().is_empty()))
+        .or_else(|| Some(default_model.to_string()));
+
+    let cli = match provider_value.as_str() {
+        "claude" => "claude".to_string(),
+        "codex" => "codex".to_string(),
+        "gemini" => "gemini".to_string(),
+        "opencode" => "opencode".to_string(),
+        // Mapping old provider names to CLI equivalents for bw-compat
+        "anthropic" => "claude".to_string(),
+        "openai" => "codex".to_string(),
+        "mock" => "mock".to_string(),
         unsupported => {
             return Err(format!(
-                "Unsupported provider '{unsupported}' in {provider_key}. Use mock|anthropic|openai|ollama"
+                "Unsupported provider '{unsupported}' in {provider_key}. Use claude|codex|gemini|opencode"
             ))
         }
     };
@@ -4258,7 +4322,7 @@ fn build_agent_from_env(
     Ok(RuntimeAgent {
         model,
         role,
-        provider,
+        cli,
     })
 }
 
@@ -4687,8 +4751,29 @@ fn sanitize_json_escapes(raw: &str) -> String {
     repair_malformed_json_key_quotes(&out)
 }
 
+fn strip_ansi_escapes(raw: &str) -> String {
+    let mut result = String::with_capacity(raw.len());
+    let mut in_escape = false;
+    
+    for c in raw.chars() {
+        if in_escape {
+            // ANSI escape sequences typically end with an alphabetic character (like 'm' for colors).
+            if c.is_ascii_alphabetic() {
+                in_escape = false;
+            }
+        } else if c == '\x1b' {
+            in_escape = true;
+        } else {
+            result.push(c);
+        }
+    }
+    
+    result
+}
+
 fn parse_json_payload<T: for<'de> Deserialize<'de>>(raw: &str) -> Result<T, String> {
-    let candidates = collect_json_parse_candidates(raw);
+    let clean_raw = strip_ansi_escapes(raw);
+    let candidates = collect_json_parse_candidates(&clean_raw);
     if candidates.is_empty() {
         let mut raw_snippet = raw.trim().to_string();
         if raw_snippet.len() > 280 {
@@ -6128,5 +6213,16 @@ env_key = "COMPANY_API_KEY"
                 "gemini-3-flash-preview".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn strip_ansi_escapes_removes_colors_and_preserves_text() {
+        let raw = "\x1b[32m{\n  \"status\": \"test\"\n}\x1b[0m";
+        let cleaned = super::strip_ansi_escapes(raw);
+        assert_eq!(cleaned, "{\n  \"status\": \"test\"\n}");
+        
+        let raw_complex = "\x1b[1;31mAgent:\x1b[0m \x1b[36m{\"foo\": \x1b[4mbold\x1b[0m}\x1b[0m";
+        let cleaned_complex = super::strip_ansi_escapes(raw_complex);
+        assert_eq!(cleaned_complex, "Agent: {\"foo\": bold}");
     }
 }

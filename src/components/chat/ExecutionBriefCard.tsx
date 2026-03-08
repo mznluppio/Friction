@@ -1,11 +1,10 @@
-import { ChevronRight, Download, Save } from "lucide-react";
+import { ChevronRight, Download } from "lucide-react";
 import type { ExecutionBrief } from "@/lib/types";
 import { Phase3ValidateInline } from "./Phase3ValidateInline";
 
 interface ExecutionBriefCardProps {
   brief: ExecutionBrief;
   canPersistSession: boolean;
-  saveLocalLoading?: boolean;
   datasetLoading?: boolean;
   repoPath: string;
   baseBranch: string;
@@ -13,7 +12,6 @@ interface ExecutionBriefCardProps {
   consentedToDataset: boolean;
   phase3Loading?: boolean;
   phase3FormError?: string | null;
-  onSave: () => void;
   onExportSession: () => void;
   onExportDataset: () => void;
   onNewThread: () => void;
@@ -31,7 +29,6 @@ function fallbackItems(items: string[], fallback: string): string[] {
 export function ExecutionBriefCard({
   brief,
   canPersistSession,
-  saveLocalLoading = false,
   datasetLoading = false,
   repoPath,
   baseBranch,
@@ -39,7 +36,6 @@ export function ExecutionBriefCard({
   consentedToDataset,
   phase3Loading = false,
   phase3FormError = null,
-  onSave,
   onExportSession,
   onExportDataset,
   onNewThread,
@@ -138,15 +134,6 @@ export function ExecutionBriefCard({
       </div>
 
       <div className="workflow-inline-actions mt-4">
-        <button
-          type="button"
-          className="workflow-inline-secondary"
-          onClick={onSave}
-          disabled={!canPersistSession || saveLocalLoading}
-        >
-          <Save className="h-4 w-4" aria-hidden="true" />
-          {saveLocalLoading ? "Saving..." : "Snapshot"}
-        </button>
         <button
           type="button"
           className="workflow-inline-secondary"

@@ -409,16 +409,16 @@ export function normalizeSessionRecord(session: FrictionSession): FrictionSessio
   const problemStatement = withTrimmed(session.problem_statement) || withTrimmed(session.requirement);
   const normalizedPhase2 = session.phase2
     ? {
-        ...session.phase2,
-        plans: (session.phase2.plans ?? []).map((plan) => normalizeLegacyPlan(plan)),
-      }
+      ...session.phase2,
+      plans: (session.phase2.plans ?? []).map((plan) => normalizeLegacyPlan(plan)),
+    }
     : undefined;
   const brief =
     normalizeExecutionBrief(
       session.result?.action_brief ??
-        session.result?.execution_brief ??
-        normalizedPhase2?.action_brief ??
-        normalizedPhase2?.execution_brief,
+      session.result?.execution_brief ??
+      normalizedPhase2?.action_brief ??
+      normalizedPhase2?.execution_brief,
       problemStatement,
     ) ?? undefined;
 
@@ -438,33 +438,33 @@ export function normalizeSessionRecord(session: FrictionSession): FrictionSessio
         phase1:
           session.phase1 && session.phase1.interpretations.length >= 2
             ? {
-                architect: session.phase1.interpretations[0],
-                pragmatist: session.phase1.interpretations[1],
-                divergences: session.phase1.divergences,
-                humanClarifications: session.phase1.human_clarifications,
-              }
+              architect: session.phase1.interpretations[0],
+              pragmatist: session.phase1.interpretations[1],
+              divergences: session.phase1.divergences,
+              humanClarifications: session.phase1.human_clarifications,
+            }
             : null,
         phase2:
           normalizedPhase2 && normalizedPhase2.plans.length >= 2
             ? {
-                architect: normalizedPhase2.plans[0],
-                pragmatist: normalizedPhase2.plans[1],
-                divergences: normalizedPhase2.divergences,
-                humanDecision: normalizedPhase2.human_decision,
-                humanDecisionStructured: normalizedPhase2.human_decision_structured,
-                executionBrief: normalizedPhase2.execution_brief,
-                actionBrief: normalizedPhase2.action_brief,
-              }
+              architect: normalizedPhase2.plans[0],
+              pragmatist: normalizedPhase2.plans[1],
+              divergences: normalizedPhase2.divergences,
+              humanDecision: normalizedPhase2.human_decision,
+              humanDecisionStructured: normalizedPhase2.human_decision_structured,
+              executionBrief: normalizedPhase2.execution_brief,
+              actionBrief: normalizedPhase2.action_brief,
+            }
             : null,
         phase3: session.phase3
           ? {
-              codeA: session.phase3.code_a,
-              codeB: session.phase3.code_b,
-              attackReport: session.phase3.attack_report,
-              confidenceScore: session.phase3.confidence_score,
-              adrPath: session.phase3.adr_path,
-              adrMarkdown: session.phase3.adr_markdown,
-            }
+            codeA: session.phase3.code_a,
+            codeB: session.phase3.code_b,
+            attackReport: session.phase3.attack_report,
+            confidenceScore: session.phase3.confidence_score,
+            adrPath: session.phase3.adr_path,
+            adrMarkdown: session.phase3.adr_markdown,
+          }
           : null,
         problemStatement,
         composerText: session.working_state?.composerText,
@@ -517,20 +517,20 @@ export function buildSessionExport({
     withTrimmed(problemStatement) || withTrimmed(requirement);
   const normalizedPhase1 = phase1
     ? {
-        interpretations:
-          phase1.agentResponses && phase1.agentResponses.length >= 2
-            ? phase1.agentResponses.map((item) => item.response)
-            : [phase1.architect, phase1.pragmatist].filter(Boolean),
-        divergences: phase1.divergences,
-        human_clarifications: phase1.humanClarifications,
-      }
+      interpretations:
+        phase1.agentResponses && phase1.agentResponses.length >= 2
+          ? phase1.agentResponses.map((item) => item.response)
+          : [phase1.architect, phase1.pragmatist].filter(Boolean),
+      divergences: phase1.divergences,
+      human_clarifications: phase1.humanClarifications,
+    }
     : undefined;
   const normalizedPhase2Plans = phase2
     ? (
-        phase2.agentPlans && phase2.agentPlans.length >= 2
-          ? phase2.agentPlans.map((item) => item.plan)
-          : [phase2.architect, phase2.pragmatist]
-      ).map((plan) => normalizeLegacyPlan(plan))
+      phase2.agentPlans && phase2.agentPlans.length >= 2
+        ? phase2.agentPlans.map((item) => item.plan)
+        : [phase2.architect, phase2.pragmatist]
+    ).map((plan) => normalizeLegacyPlan(plan))
     : undefined;
   const normalizedBrief = normalizeExecutionBrief(
     phase2?.actionBrief ?? phase2?.executionBrief,
@@ -538,23 +538,23 @@ export function buildSessionExport({
   );
   const normalizedPhase2 = phase2
     ? {
-        plans: normalizedPhase2Plans ?? [],
-        divergences: phase2.divergences,
-        human_decision: phase2.humanDecision,
-        human_decision_structured: phase2.humanDecisionStructured,
-        execution_brief: normalizedBrief,
-        action_brief: normalizedBrief,
-      }
+      plans: normalizedPhase2Plans ?? [],
+      divergences: phase2.divergences,
+      human_decision: phase2.humanDecision,
+      human_decision_structured: phase2.humanDecisionStructured,
+      execution_brief: normalizedBrief,
+      action_brief: normalizedBrief,
+    }
     : undefined;
   const normalizedPhase3 = phase3
     ? {
-        code_a: phase3.codeA,
-        code_b: phase3.codeB,
-        attack_report: phase3.attackReport,
-        confidence_score: phase3.confidenceScore,
-        adr_path: phase3.adrPath,
-        adr_markdown: phase3.adrMarkdown,
-      }
+      code_a: phase3.codeA,
+      code_b: phase3.codeB,
+      attack_report: phase3.attackReport,
+      confidence_score: phase3.confidenceScore,
+      adr_path: phase3.adrPath,
+      adr_markdown: phase3.adrMarkdown,
+    }
     : undefined;
   const effectiveStatus =
     status ??
@@ -630,6 +630,16 @@ export async function saveSessionRecord(session: FrictionSession): Promise<strin
   withoutCurrent.push(normalized);
   localStorage.setItem(LOCAL_SESSIONS_KEY, JSON.stringify(withoutCurrent));
   return normalized.id;
+}
+
+export async function deleteSessionRecord(id: string): Promise<void> {
+  if (canUseTauriCommands()) {
+    return invokeCommand<void>("delete_session", { id });
+  }
+
+  const sessions = readLocalSessions();
+  const withoutCurrent = sessions.filter((item) => item.id !== id);
+  localStorage.setItem(LOCAL_SESSIONS_KEY, JSON.stringify(withoutCurrent));
 }
 
 export async function listSavedSessions(limit = 5): Promise<SessionSummary[]> {

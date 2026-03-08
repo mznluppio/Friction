@@ -1,5 +1,5 @@
 export type AgentBias = "architect" | "pragmatist" | "security" | "custom";
-export type LLMProvider = "mock" | "anthropic" | "openai" | "ollama";
+export type LLMProvider = "mock" | "claude" | "codex" | "gemini" | "opencode";
 export type AgentCli = "claude" | "codex" | "gemini" | "opencode";
 export type AgentCliCommandMap = Partial<Record<AgentCli, string>>;
 export type AgentCliModelMap = Partial<Record<AgentCli, string>>;
@@ -67,6 +67,14 @@ export interface PhaseAgentPlan {
   label: string;
   cli: AgentCli;
   plan: AgentPlan;
+}
+
+export interface PersonaArtifactEvent {
+  requestId: string;
+  phase: number;
+  agentId: string;
+  agentLabel: string;
+  personaContent: string;
 }
 
 export interface DivergenceAgentValue {
@@ -411,7 +419,7 @@ export interface DatasetExportResult {
   count: number;
 }
 
-export type JudgeProvider = "haiku" | "flash" | "ollama" | "opencode";
+export type JudgeProvider = "claude" | "codex" | "gemini" | "opencode";
 
 export interface Phase3RunInput {
   repoPath: string;
@@ -544,71 +552,71 @@ export type ConversationPayload =
 
 export type ConversationItem =
   | {
-      id: string;
-      type: "user" | "assistant";
-      text: string;
-      meta: ConversationMetaPayload;
-    }
+    id: string;
+    type: "user" | "assistant";
+    text: string;
+    meta: ConversationMetaPayload;
+  }
   | {
-      id: string;
-      type: "tool" | "status";
-      payload: ConversationToolPayload;
-    }
+    id: string;
+    type: "tool" | "status";
+    payload: ConversationToolPayload;
+  }
   | {
-      id: string;
-      type: "plan";
-      payload: ConversationPlanPayload;
-    }
+    id: string;
+    type: "plan";
+    payload: ConversationPlanPayload;
+  }
   | {
-      id: string;
-      type: "code";
-      payload: ConversationCodePayload;
-    }
+    id: string;
+    type: "code";
+    payload: ConversationCodePayload;
+  }
   | {
-      id: string;
-      type: "task";
-      payload: ConversationTaskPayload;
-    }
+    id: string;
+    type: "task";
+    payload: ConversationTaskPayload;
+  }
   | {
-      id: string;
-      type: "cli_timeline";
-      payload: ConversationCliTimelinePayload;
-    }
+    id: string;
+    type: "cli_timeline";
+    payload: ConversationCliTimelinePayload;
+  }
   | {
-      id: string;
-      type: "friction_phase1";
-      payload: ConversationFrictionPhase1Payload;
-    }
+    id: string;
+    type: "friction_phase1";
+    payload: ConversationFrictionPhase1Payload;
+  }
   | {
-      id: string;
-      type: "friction_inbox";
-      payload: ConversationFrictionInboxPayload;
-    }
+    id: string;
+    type: "friction_inbox";
+    payload: ConversationFrictionInboxPayload;
+  }
   | {
-      id: string;
-      type: "decision_phase2";
-      payload: ConversationDecisionPhase2Payload;
-    }
+    id: string;
+    type: "decision_phase2";
+    payload: ConversationDecisionPhase2Payload;
+  }
   | {
-      id: string;
-      type: "execution_brief";
-      payload: ConversationExecutionBriefPayload;
-    }
+    id: string;
+    type: "execution_brief";
+    payload: ConversationExecutionBriefPayload;
+  }
   | {
-      id: string;
-      type: "validate_phase3";
-      payload: ConversationValidatePhase3Payload;
-    }
+    id: string;
+    type: "validate_phase3";
+    payload: ConversationValidatePhase3Payload;
+  }
   | {
-      id: string;
-      type: "workflow_done";
-      payload: ConversationWorkflowDonePayload;
-    }
+    id: string;
+    type: "workflow_done";
+    payload: ConversationWorkflowDonePayload;
+  }
   | {
-      id: string;
-      type: "error";
-      payload: ConversationErrorPayload;
-    };
+    id: string;
+    type: "error";
+    payload: ConversationErrorPayload;
+  };
 
 export type FrictionResolutionChoice = `agent:${string}` | "hybrid";
 

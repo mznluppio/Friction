@@ -4,7 +4,7 @@ import {
 } from "@assistant-ui/react";
 import { Thread, ThreadList } from "@assistant-ui/react-ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, Download, PanelLeft, Save, Settings2 } from "lucide-react";
+import { ArrowDown, Download, PanelLeft, Settings2 } from "lucide-react";
 import { AgentCard } from "./components/AgentCard";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { DiffViewer } from "./components/DiffViewer";
@@ -23,7 +23,7 @@ import { PlanCard } from "./components/chat/PlanCard";
 import { AssistantMessageArtifactAware } from "./components/chat/AssistantMessageArtifactAware";
 import { WorkflowPromptInput } from "./components/chat/prompt-input/WorkflowPromptInput";
 import { SuggestionChips } from "./components/chat/SuggestionChips";
-import { TaskRail } from "./components/chat/TaskRail";
+
 import { Button } from "./components/ui/button";
 import { canUseTauriCommands } from "./lib/api";
 import {
@@ -33,6 +33,7 @@ import {
   listCliModels,
   listSavedSessions,
   loadSessionRecord,
+  deleteSessionRecord,
   runPhase1,
   runPhase2,
   runPhase3Adversarial,
@@ -106,14 +107,14 @@ const AUTOSAVE_MIN_NON_WHITESPACE = 8;
 const AUTOSAVE_DEBOUNCE_MS = 800;
 
 const JUDGE_PROVIDER_OPTIONS: JudgeProvider[] = [
-  "haiku",
-  "flash",
-  "ollama",
+  "claude",
+  "gemini",
+  "codex",
   "opencode",
 ];
 const AGENT_CLI_OPTIONS: AgentCli[] = ["claude", "codex", "gemini", "opencode"];
 
-const DEFAULT_JUDGE_PROVIDER: JudgeProvider = "haiku";
+const DEFAULT_JUDGE_PROVIDER: JudgeProvider = "claude";
 const DEFAULT_AGENT_A_CLI: AgentCli = "claude";
 const DEFAULT_AGENT_B_CLI: AgentCli = "codex";
 const MAX_PHASE_AGENTS = 4;
@@ -164,6 +165,7 @@ const CLI_DETECTION_AGENTS: PhaseAgentRuntime[] = [
 ];
 
 const CLI_COMMAND_LOG_EVENT_NAME = "friction://cli-command-log";
+const PERSONA_ARTIFACT_EVENT_NAME = "friction://persona-artifact";
 const STDERR_ANSI_PREFIX = "\u001b[31m[stderr]\u001b[0m ";
 const CLI_TIMELINE_OUTPUT_MAX_CHARS = 1_000_000;
 const CLI_TIMELINE_TRUNCATED_SUFFIX = "\n...[truncated]\n";
@@ -176,7 +178,6 @@ const SUGGESTION_SETS: Record<WorkflowStep, string[]> = {
   requirement: [],
   friction: [],
   brief: [
-    "Create snapshot",
     "Export session",
     "Export consented dataset",
     "New session",
@@ -1727,7 +1728,6 @@ export default function App() {
   const [phase1Loading, setPhase1Loading] = useState(false);
   const [phase2Loading, setPhase2Loading] = useState(false);
   const [phase3Loading, setPhase3Loading] = useState(false);
-  const [saveLocalLoading, setSaveLocalLoading] = useState(false);
   const [datasetLoading, setDatasetLoading] = useState(false);
 
   const [phase3FormError, setPhase3FormError] = useState<string | null>(null);
@@ -1742,6 +1742,7 @@ export default function App() {
     string | null
   >(null);
   const [cliTimelineRuns, setCliTimelineRuns] = useState<CliTimelineRun[]>([]);
+  const [personaArtifacts, setPersonaArtifacts] = useState<PersonaArtifactEvent[]>([]);
   const [cliModelInventory, setCliModelInventory] = useState<
     Partial<Record<AgentCli, CliAliasModelInventory>>
   >({});
@@ -1855,7 +1856,7 @@ export default function App() {
   }, [composerText, requirement]);
   const hasMeaningfulSessionContent = useMemo(() => {
     if (
-      nonWhitespaceLength(activeProblemStatement) >= AUTOSAVE_MIN_NON_WHITESPACE
+      nonWhitespaceLength(withTrimmed(requirement)) >= AUTOSAVE_MIN_NON_WHITESPACE
     ) {
       return true;
     }
@@ -1864,7 +1865,7 @@ export default function App() {
     }
     return conversation.some((item) => item.type === "user");
   }, [
-    activeProblemStatement,
+    requirement,
     conversation,
     phase1Result,
     phase2Result,
@@ -2060,7 +2061,6 @@ export default function App() {
             workflowStep,
             phase2Loading ? "1" : "0",
             phase3Loading ? "1" : "0",
-            saveLocalLoading ? "1" : "0",
             datasetLoading ? "1" : "0",
             withTrimmed(repoPath),
             withTrimmed(baseBranch),
@@ -2087,7 +2087,6 @@ export default function App() {
     phase3FormError,
     phase3Loading,
     repoPath,
-    saveLocalLoading,
     saveStatus,
     workflowStep,
   ]);
@@ -2156,7 +2155,7 @@ export default function App() {
         if (!run) {
           return null;
         }
-        return <CommandTimelineCard run={run} />;
+        return <CommandTimelineCard run={run} personaArtifacts={personaArtifacts} />;
       }
 
       if (item.type === "friction_phase1") {
@@ -2237,7 +2236,6 @@ export default function App() {
           <ExecutionBriefCard
             brief={brief}
             canPersistSession={canPersistSession}
-            saveLocalLoading={saveLocalLoading}
             datasetLoading={datasetLoading}
             repoPath={repoPath}
             baseBranch={baseBranch}
@@ -2245,9 +2243,6 @@ export default function App() {
             consentedToDataset={consentedToDataset}
             phase3Loading={phase3Loading}
             phase3FormError={phase3FormError}
-            onSave={() => {
-              void handleSaveSessionLocal();
-            }}
             onExportSession={handleExportSession}
             onExportDataset={() => {
               void handleExportDataset();
@@ -2392,12 +2387,10 @@ export default function App() {
       consentedToDataset,
       proofModeOpen,
       canPersistSession,
-      saveLocalLoading,
       datasetLoading,
       handleExportDataset,
       handleExportSession,
       handleRestart,
-      handleSaveSessionLocal,
       submitFrictionInbox,
       updateFrictionContextNote,
       updateFrictionDirection,
@@ -2473,6 +2466,30 @@ export default function App() {
     [],
   );
 
+  const handleArchiveThread = useCallback(
+    (threadId: string) => {
+      queueConfirmation(
+        {
+          title: "Supprimer la session",
+          description: "Voulez-vous vraiment supprimer cette session ? Cette action est irréversible.",
+          confirmLabel: "Supprimer",
+        },
+        async () => {
+          try {
+            await deleteSessionRecord(threadId);
+            if (currentSessionId === threadId) {
+              handleRestartRef.current();
+            }
+            await refreshRecentSessions();
+          } catch (err) {
+            setError(`Échec de la suppression: ${extractErrorMessage(err)}`);
+          }
+        }
+      );
+    },
+    [currentSessionId],
+  );
+
   const assistantThreadStoreAdapter = useMemo(
     () => ({
       isRunning: isBusy,
@@ -2483,6 +2500,8 @@ export default function App() {
           threads: assistantThreadListItems,
           onSwitchToThread: handleThreadSwitchToThread,
           onSwitchToNewThread: handleThreadSwitchToNewThread,
+          onArchive: handleArchiveThread,
+          onDelete: handleArchiveThread,
         },
       },
       onNew: handleThreadNewMessage,
@@ -2504,6 +2523,7 @@ export default function App() {
       handleThreadSwitchToThread,
       handleThreadSwitchToNewThread,
       handleThreadNewMessage,
+      handleArchiveThread,
     ],
   );
 
@@ -2929,18 +2949,7 @@ export default function App() {
     });
   }
 
-  function handleCliModelChange(cli: AgentCli, value: string) {
-    setCliModels((previous) => {
-      if (!value) {
-        const { [cli]: _, ...rest } = previous;
-        return rest;
-      }
-      return {
-        ...previous,
-        [cli]: value,
-      };
-    });
-  }
+
 
   function handleAgentCliModelChange(agentId: string, value: string) {
     setAgentCliModels((previous) => {
@@ -3778,22 +3787,24 @@ export default function App() {
     await submitWorkflowInput(input);
   }
 
-  function ensureActiveSessionIdentity(
-    problemStatement = activeProblemStatement,
-  ) {
+  function ensureActiveSessionIdentity() {
+    // If the session has no meaningful content and no requirement, do not generate an ID.
     if (
       !hasMeaningfulSessionContent &&
-      nonWhitespaceLength(problemStatement) < AUTOSAVE_MIN_NON_WHITESPACE
+      nonWhitespaceLength(withTrimmed(requirement)) < AUTOSAVE_MIN_NON_WHITESPACE
     ) {
       return null;
     }
 
     const existingId = currentSessionId ?? routeState.sessionId;
     const existingCreatedAt = currentSessionCreatedAt;
+
+    // If we already have an ID, return it.
     if (existingId && existingCreatedAt) {
       return { id: existingId, createdAt: existingCreatedAt };
     }
 
+    // Only generate a new ID and push to the route if we have content.
     const nextId = existingId ?? crypto.randomUUID();
     const nextCreatedAt = existingCreatedAt ?? new Date().toISOString();
     setCurrentSessionId(nextId);
@@ -3898,25 +3909,6 @@ export default function App() {
     const message = "Session exported to JSON.";
     setSaveStatus(message);
     appendStatus("Export complete", workflowStep, message, false);
-  }
-
-  async function handleSaveSessionLocal() {
-    if (!buildSnapshot()) {
-      const message =
-        "Write a longer problem statement before creating a snapshot.";
-      setSaveStatus(message);
-      appendError(message, workflowStep);
-      return;
-    }
-
-    setSaveLocalLoading(true);
-    setSaveStatus(null);
-
-    try {
-      await persistSessionSnapshot({ silent: false });
-    } finally {
-      setSaveLocalLoading(false);
-    }
   }
 
   async function handleExportDataset() {
@@ -4371,10 +4363,6 @@ export default function App() {
   }
 
   function handleSuggestionPick(suggestion: string) {
-    if (suggestion === "Create snapshot") {
-      void handleSaveSessionLocal();
-      return;
-    }
 
     if (suggestion === "Export session") {
       handleExportSession();
@@ -4539,6 +4527,25 @@ export default function App() {
             enqueueCliTimelineEvent(payload);
           },
         );
+
+        // Persona artifacts are discrete blocks (unlike massive cli streams), update state immediately
+        const unlistenPersona = await listen<PersonaArtifactEvent>(
+          PERSONA_ARTIFACT_EVENT_NAME,
+          (event) => {
+            const payload = event.payload;
+            if (payload && typeof payload.requestId === "string") {
+              setPersonaArtifacts((prev) => [...prev, payload]);
+            }
+          }
+        );
+
+        // Chain listeners for cleanup
+        const previousUnlisten = unlisten;
+        unlisten = () => {
+          previousUnlisten();
+          unlistenPersona();
+        };
+
       } catch {
         // Event channel unavailable in non-Tauri contexts.
       }
@@ -4690,7 +4697,7 @@ export default function App() {
     if (isHydratingSessionRef.current) return;
     if (
       !hasMeaningfulSessionContent &&
-      nonWhitespaceLength(activeProblemStatement) < AUTOSAVE_MIN_NON_WHITESPACE
+      nonWhitespaceLength(withTrimmed(requirement)) < AUTOSAVE_MIN_NON_WHITESPACE
     ) {
       return;
     }
@@ -4739,7 +4746,7 @@ export default function App() {
     const beforeUnload = (event: BeforeUnloadEvent) => {
       if (
         hasMeaningfulSessionContent ||
-        nonWhitespaceLength(activeProblemStatement) >=
+        nonWhitespaceLength(withTrimmed(requirement)) >=
         AUTOSAVE_MIN_NON_WHITESPACE
       ) {
         void persistSessionSnapshot({ silent: true });
@@ -4762,7 +4769,7 @@ export default function App() {
       window.removeEventListener("beforeunload", beforeUnload);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [activeProblemStatement, hasMeaningfulSessionContent, hasUnsaved]);
+  }, [requirement, hasMeaningfulSessionContent, hasUnsaved]);
 
   // Persist settings to localStorage whenever any setting changes
   useEffect(() => {
@@ -4868,32 +4875,16 @@ export default function App() {
         <SettingsDialog
           open={settingsOpen}
           onOpenChange={handleSettingsOpenChange}
-          judgeProviderOptions={JUDGE_PROVIDER_OPTIONS}
-          phase12Agents={phase12AgentsSafe}
-          phase3AgentACli={phase3AgentACli}
-          phase3AgentBCli={phase3AgentBCli}
           cliCommands={cliCommands}
-          cliModels={cliModels}
-          cliModelInventory={cliModelInventory}
-          agentCliModels={agentCliModels}
           cliCommandStatuses={onboardingCliStatuses}
           opencodeModels={opencodeModels}
           opencodeModelsLoading={opencodeModelsLoading}
           opencodeModelsError={opencodeModelsError}
           cliDiagnosticsLoading={phase12DiagnosticsLoading}
           cliDiagnosticsError={phase12DiagnosticsError}
-          judgeProvider={judgeProvider}
-          judgeModel={judgeModel}
           ollamaHost={ollamaHost}
           autoCleanup={autoCleanup}
-          onPhase12AgentsChange={setPhase12Agents}
-          onPhase3AgentACliChange={setPhase3AgentACli}
-          onPhase3AgentBCliChange={setPhase3AgentBCli}
           onCliCommandChange={handleCliCommandChange}
-          onAgentCliModelChange={handleAgentCliModelChange}
-          onCliModelChange={handleCliModelChange}
-          onJudgeProviderChange={setJudgeProvider}
-          onJudgeModelChange={setJudgeModel}
           onOllamaHostChange={setOllamaHost}
           onAutoCleanupChange={setAutoCleanup}
           onRefreshOpencodeModels={() => void handleRefreshOpencodeModels()}
@@ -4937,15 +4928,6 @@ export default function App() {
                 <Button
                   variant="ghost"
                   className="w-full justify-start"
-                  onClick={() => void handleSaveSessionLocal()}
-                  disabled={!canPersistSession || saveLocalLoading}
-                >
-                  <Save className="h-4 w-4" aria-hidden="true" />
-                  {saveLocalLoading ? "Saving…" : "Snapshot"}
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="w-full justify-start"
                   onClick={handleExportSession}
                   disabled={!canPersistSession}
                 >
@@ -4968,8 +4950,7 @@ export default function App() {
                   <div>
                     <h1 className="friction-modern-title">Friction</h1>
                     <p className="friction-modern-subtitle">
-                      Multi-AI disagreement engine for bugs, decisions, and open
-                      problems.
+                      Human-in-the-loop AI orchestration. We force agents to debate, you make the final call.
                     </p>
                   </div>
                 </div>
@@ -4991,7 +4972,6 @@ export default function App() {
               <div className="friction-modern-body">
                 <div className="workflow-chat-layout">
                   <ConversationShell
-                    taskRail={<TaskRail currentStep={workflowStep} />}
                     composer={
                       <WorkflowPromptInput
                         value={composerText}
@@ -5062,32 +5042,16 @@ export default function App() {
       <SettingsDialog
         open={settingsOpen}
         onOpenChange={handleSettingsOpenChange}
-        judgeProviderOptions={JUDGE_PROVIDER_OPTIONS}
-        phase12Agents={phase12AgentsSafe}
-        phase3AgentACli={phase3AgentACli}
-        phase3AgentBCli={phase3AgentBCli}
         cliCommands={cliCommands}
-        cliModels={cliModels}
-        cliModelInventory={cliModelInventory}
-        agentCliModels={agentCliModels}
         cliCommandStatuses={onboardingCliStatuses}
         opencodeModels={opencodeModels}
         opencodeModelsLoading={opencodeModelsLoading}
         opencodeModelsError={opencodeModelsError}
         cliDiagnosticsLoading={phase12DiagnosticsLoading}
         cliDiagnosticsError={phase12DiagnosticsError}
-        judgeProvider={judgeProvider}
-        judgeModel={judgeModel}
         ollamaHost={ollamaHost}
         autoCleanup={autoCleanup}
-        onPhase12AgentsChange={setPhase12Agents}
-        onPhase3AgentACliChange={setPhase3AgentACli}
-        onPhase3AgentBCliChange={setPhase3AgentBCli}
         onCliCommandChange={handleCliCommandChange}
-        onAgentCliModelChange={handleAgentCliModelChange}
-        onCliModelChange={handleCliModelChange}
-        onJudgeProviderChange={setJudgeProvider}
-        onJudgeModelChange={setJudgeModel}
         onOllamaHostChange={setOllamaHost}
         onAutoCleanupChange={setAutoCleanup}
         onRefreshOpencodeModels={() => void handleRefreshOpencodeModels()}
@@ -5103,10 +5067,8 @@ export default function App() {
         onLoadSession={handleLoadSession}
         onOpenSettings={() => handleSettingsOpenChange(true)}
         onNewSession={handleRestart}
-        onSaveSession={() => void handleSaveSessionLocal()}
         onExportSession={handleExportSession}
         canPersistSession={canPersistSession}
-        saveLocalLoading={saveLocalLoading}
       />
 
       <ConfirmDialog

@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { Download, Save, Settings2, X } from "lucide-react";
+import { Download, Settings2, X } from "lucide-react";
 import { formatDateTime } from "../lib/formatters";
 import type { SessionSummary } from "../lib/types";
 import { Button } from "./ui/button";
@@ -12,10 +12,8 @@ interface SessionsDrawerProps {
   onLoadSession: (id: string) => void;
   onOpenSettings: () => void;
   onNewSession: () => void;
-  onSaveSession: () => void;
   onExportSession: () => void;
   canPersistSession: boolean;
-  saveLocalLoading: boolean;
 }
 
 export function SessionsDrawer({
@@ -25,10 +23,8 @@ export function SessionsDrawer({
   activeSessionId,
   onLoadSession,
   onOpenSettings,
-  onSaveSession,
   onExportSession,
   canPersistSession,
-  saveLocalLoading
 }: SessionsDrawerProps) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -94,19 +90,6 @@ export function SessionsDrawer({
             >
               <Settings2 className="h-4 w-4" aria-hidden="true" />
               Settings
-            </Button>
-
-            <Button
-              variant="ghost"
-              className="w-full justify-start"
-              onClick={() => {
-                onSaveSession();
-                onOpenChange(false);
-              }}
-              disabled={!canPersistSession || saveLocalLoading}
-            >
-              <Save className="h-4 w-4" aria-hidden="true" />
-              {saveLocalLoading ? "Saving…" : "Snapshot"}
             </Button>
             <Button
               variant="ghost"

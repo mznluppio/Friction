@@ -1825,6 +1825,7 @@ kbd {
   }
 
   @media (max-width: 860px) {
+
     .friction-inline-agent-line,
     .friction-row-agent-line {
       grid-template-columns: 1fr;
@@ -1939,7 +1940,7 @@ kbd {
     gap: 4px;
   }
 
-  .friction-rationale > span:first-child {
+  .friction-rationale>span:first-child {
     font-size: 11px;
     color: var(--friction-muted);
   }
@@ -1963,12 +1964,12 @@ kbd {
     border-color: #f87171;
   }
 
-  .friction-rationale > span:last-child {
+  .friction-rationale>span:last-child {
     font-size: 10.5px;
     color: var(--friction-muted);
   }
 
-  .friction-rationale > span:last-child.is-valid {
+  .friction-rationale>span:last-child.is-valid {
     color: #15803d;
   }
 
@@ -2652,9 +2653,7 @@ a:focus-visible {
   flex: 1;
   min-height: 0;
   height: 100%;
-  border-radius: 10px;
-  border: 1px solid var(--friction-border);
-  background: var(--friction-surface);
+  background: transparent;
   overflow: hidden;
 }
 
@@ -2703,7 +2702,7 @@ a:focus-visible {
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--friction-border) transparent;
-  padding: 14px 16px;
+  padding: 8px 12px 24px;
   background: transparent !important;
   outline: none !important;
 }
@@ -2717,25 +2716,25 @@ a:focus-visible {
 .aui-root .aui-thread-messages {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
 }
 
 /* User message row — right-aligned */
 .aui-root .aui-user-message {
   display: flex;
   justify-content: flex-end;
-  padding: 0;
+  padding: 0 0 16px;
 }
 
 .aui-root .aui-user-message-content {
   max-width: min(80%, 680px);
-  background: var(--friction-text) !important;
-  color: var(--friction-surface) !important;
-  border-radius: 14px 14px 4px 14px !important;
-  padding: 10px 14px !important;
-  font-size: 13px !important;
-  line-height: 1.65 !important;
-  border: none !important;
+  background: var(--friction-surface-alt) !important;
+  color: var(--friction-text) !important;
+  border-radius: 12px !important;
+  padding: 12px 16px !important;
+  font-size: 14px !important;
+  line-height: 1.7 !important;
+  border: 1px solid var(--friction-border) !important;
   outline: none !important;
 }
 
@@ -2745,7 +2744,7 @@ a:focus-visible {
   justify-content: flex-start;
   align-items: flex-start;
   gap: 8px;
-  padding: 0;
+  padding: 0 0 16px;
 }
 
 .aui-root .aui-assistant-message-content {
@@ -2755,8 +2754,8 @@ a:focus-visible {
   border-radius: 0 !important;
   padding: 0 !important;
   box-shadow: none !important;
-  font-size: 13px !important;
-  line-height: 1.65 !important;
+  font-size: 14px !important;
+  line-height: 1.7 !important;
   color: var(--friction-text) !important;
   outline: none !important;
 }

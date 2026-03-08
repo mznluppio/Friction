@@ -25,18 +25,19 @@ interface FrictionPhase1InlineProps {
   onSubmit: (draftOverride?: FrictionInboxDraft) => void;
 }
 
+
 function summarizeList(items?: string[]): string {
   if (!items?.length) return "";
-  return items.slice(0, 3).join(", ");
+  return items.slice(0, 3).join(", ") + (items.length > 3 ? "..." : "");
 }
 
 function fieldLabel(field: string): string {
   const normalized = field.trim().toLowerCase();
-  if (normalized === "interpretation") return "problem framing";
-  if (normalized === "assumptions") return "scope assumptions";
-  if (normalized === "risks") return "risk framing";
-  if (normalized === "questions") return "open questions";
-  if (normalized === "approach") return "investigation strategy";
+  if (normalized === "interpretation") return "Problem Framing Strategy";
+  if (normalized === "assumptions") return "Boundary Assumptions";
+  if (normalized === "risks") return "Risk Mitigation Framing";
+  if (normalized === "questions") return "Critical Open Questions";
+  if (normalized === "approach") return "Investigation Strategy";
   return field.replace(/_/g, " ");
 }
 
@@ -86,7 +87,7 @@ export function FrictionPhase1Inline({
   onResolutionChange,
   onSubmit,
 }: FrictionPhase1InlineProps) {
-  const [isInterpretationOpen, setIsInterpretationOpen] = useState(false);
+  const [isInterpretationOpen, setIsInterpretationOpen] = useState(true);
   const hiddenCount = Math.max(phase1.divergences.length - topDisagreements.length, 0);
 
   const interpretationRows = useMemo(
@@ -131,26 +132,29 @@ export function FrictionPhase1Inline({
       </button>
 
       {isInterpretationOpen ? (
-        <div className="friction-inline-interpretation-body">
-          {interpretationRows.length === 0 ? (
-            <p className="friction-inline-empty">No divergences detected.</p>
-          ) : (
-            <ul className="friction-inline-interpretation-list">
-              {interpretationRows.map((row) => (
-                <li key={row.key}>
-                  <p className="friction-inline-interpretation-row-title">{row.title}</p>
-                  <div className="friction-inline-agent-snippets">
-                    {row.snippets.map((snippet) => (
-                      <p key={snippet.agentId} className="friction-inline-agent-line">
-                        <span className="friction-inline-agent-label">{snippet.label}</span>
-                        <span className="friction-inline-agent-text">{snippet.text}</span>
+        <div className="friction-inline-interpretation-body p-4 pt-1">
+          <p className="text-[13px] text-friction-muted mb-5 pb-3 border-b border-friction-border">
+            The agents have analyzed the problem and identified {topDisagreements.length} key areas of divergence.
+          </p>
+          <div className="grid gap-6">
+            {interpretationRows.map((row) => (
+              <div key={row.key} className="flex flex-col gap-3">
+                <h4 className="text-[14px] font-semibold text-friction-text">{row.title}</h4>
+                <div className="flex flex-col gap-4 pl-4 border-l-2 border-friction-border ml-1">
+                  {row.snippets.map((snippet) => (
+                    <div key={snippet.agentId} className="flex flex-col">
+                      <span className="text-[11px] font-semibold text-friction-muted uppercase tracking-wider mb-1">
+                        {snippet.label}
+                      </span>
+                      <p className="text-[13px] text-friction-text leading-relaxed">
+                        {snippet.text}
                       </p>
-                    ))}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       ) : null}
 

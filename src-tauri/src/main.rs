@@ -652,11 +652,17 @@ async fn run_phase1(
                 std::sync::Arc::new(move |event: agents::Phase12CliLogEvent| {
                     let _ = legacy_window.emit(agents::PHASE12_CLI_LOG_EVENT_NAME, event);
                 });
+            let persona_window = window.clone();
+            let persona_artifact_emitter: agents::PersonaArtifactEmitter =
+                std::sync::Arc::new(move |event: agents::PersonaArtifactEvent| {
+                    let _ = persona_window.emit(agents::PERSONA_ARTIFACT_EVENT_NAME, event);
+                });
             agents::Phase12CliRunContext {
                 request_id: request_id.to_string(),
                 phase: 1,
                 emitter,
                 legacy_phase12_emitter: Some(legacy_phase12_emitter),
+                persona_artifact_emitter: Some(persona_artifact_emitter),
             }
         });
     run_phase1_impl(
@@ -901,11 +907,17 @@ async fn run_phase2(
                 std::sync::Arc::new(move |event: agents::Phase12CliLogEvent| {
                     let _ = legacy_window.emit(agents::PHASE12_CLI_LOG_EVENT_NAME, event);
                 });
+            let persona_window = window.clone();
+            let persona_artifact_emitter: agents::PersonaArtifactEmitter =
+                std::sync::Arc::new(move |event: agents::PersonaArtifactEvent| {
+                    let _ = persona_window.emit(agents::PERSONA_ARTIFACT_EVENT_NAME, event);
+                });
             agents::Phase12CliRunContext {
                 request_id: request_id.to_string(),
                 phase: 2,
                 emitter,
                 legacy_phase12_emitter: Some(legacy_phase12_emitter),
+                persona_artifact_emitter: Some(persona_artifact_emitter),
             }
         });
     run_phase2_impl(
@@ -955,6 +967,11 @@ fn list_sessions(limit: Option<u32>) -> Result<Vec<SessionSummary>, String> {
 #[tauri::command(rename_all = "snake_case")]
 fn load_session(id: String) -> Result<Option<SessionRecord>, String> {
     session::store::load_session(&id)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn delete_session(id: String) -> Result<(), String> {
+    session::store::delete_session(&id)
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -1157,11 +1174,17 @@ async fn run_phase3(
                 std::sync::Arc::new(move |event: agents::CliCommandLogEvent| {
                     let _ = command_window.emit(agents::CLI_COMMAND_LOG_EVENT_NAME, event);
                 });
+            let persona_window = window.clone();
+            let persona_artifact_emitter: agents::PersonaArtifactEmitter =
+                std::sync::Arc::new(move |event: agents::PersonaArtifactEvent| {
+                    let _ = persona_window.emit(agents::PERSONA_ARTIFACT_EVENT_NAME, event);
+                });
             agents::Phase12CliRunContext {
                 request_id: request_id.to_string(),
                 phase: 3,
                 emitter,
                 legacy_phase12_emitter: None,
+                persona_artifact_emitter: Some(persona_artifact_emitter),
             }
         });
     run_phase3_impl(
@@ -1283,6 +1306,7 @@ pub fn run() {
             save_session,
             list_sessions,
             load_session,
+            delete_session,
             export_consented_dataset,
             preview_worktrees,
             create_worktrees,

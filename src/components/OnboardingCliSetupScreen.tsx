@@ -27,6 +27,21 @@ function selectedAliases(agents: PhaseAgentRuntime[]): AgentCli[] {
   return aliases;
 }
 
+function getInstallCommand(cli: AgentCli): string {
+  switch (cli) {
+    case "claude":
+      return "npm install -g @anthropic-ai/claude-code";
+    case "codex":
+      return "npm install -g @openai/codex-cli";
+    case "gemini":
+      return "npm install -g @google/geminicli";
+    case "opencode":
+      return "npm install -g opencode";
+    default:
+      return "";
+  }
+}
+
 export function OnboardingCliSetupScreen({
   phase12Agents,
   cliCommands,
@@ -129,6 +144,19 @@ export function OnboardingCliSetupScreen({
                   >
                     {status?.detail ?? "No diagnostic result yet."}
                   </p>
+                  {status && !status.isExecutable ? (
+                    <div className="mt-1 flex items-center gap-2 rounded-md border border-friction-border bg-friction-surface p-2">
+                      <code className="flex-1 text-[11px] text-friction-text">{getInstallCommand(cli)}</code>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-16 text-[10px]"
+                        onClick={() => navigator.clipboard.writeText(getInstallCommand(cli))}
+                      >
+                        Copy
+                      </Button>
+                    </div>
+                  ) : null}
                 </label>
               );
             })}

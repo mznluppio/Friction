@@ -1,5 +1,5 @@
 import { Check, ChevronRight, Loader2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   Divergence,
   FrictionInboxDraft,
@@ -103,11 +103,8 @@ export function FrictionInboxCard({
     Record<string, { choice?: FrictionResolutionChoice; rationale: string }>
   >({});
   const [openByKey, setOpenByKey] = useState<Record<string, boolean>>({});
-  const [advancedOpenByKey, setAdvancedOpenByKey] = useState<
-    Record<string, boolean>
-  >({});
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [attemptedSubmit, setAttemptedSubmit] = useState(false);
-  const prevResolvedRef = useRef<Record<string, boolean>>({});
   const hiddenCount = Math.max(phase1.divergences.length - topDisagreements.length, 0);
 
   useEffect(() => {
@@ -187,69 +184,6 @@ export function FrictionInboxCard({
   const resolvedCount = rows.filter((row) => row.resolved).length;
   const totalCount = rows.length;
 
-  useEffect(() => {
-    setOpenByKey((previous) => {
-      const next = { ...previous };
-      let changed = false;
-      rows.forEach((row) => {
-        const hasValue = Object.prototype.hasOwnProperty.call(next, row.key);
-        const prevResolved = prevResolvedRef.current[row.key];
-        if (!hasValue) {
-          const target = !row.resolved;
-          next[row.key] = target;
-          changed = true;
-          return;
-        }
-        if (prevResolved !== row.resolved) {
-          const target = !row.resolved;
-          if (next[row.key] !== target) {
-            next[row.key] = target;
-            changed = true;
-          }
-        }
-      });
-      Object.keys(next).forEach((key) => {
-        if (!rows.some((row) => row.key === key)) {
-          delete next[key];
-          changed = true;
-        }
-      });
-      return changed ? next : previous;
-    });
-
-    setAdvancedOpenByKey((previous) => {
-      const next = { ...previous };
-      let changed = false;
-      Object.keys(next).forEach((key) => {
-        if (!rows.some((row) => row.key === key)) {
-          delete next[key];
-          changed = true;
-        }
-      });
-      return changed ? next : previous;
-    });
-
-    const nextResolved: Record<string, boolean> = {};
-    rows.forEach((row) => {
-      nextResolved[row.key] = row.resolved;
-    });
-    prevResolvedRef.current = nextResolved;
-  }, [rows]);
-
-  useEffect(() => {
-    if (!attemptedSubmit || invalidKeys.length === 0) return;
-    const firstInvalidKey = invalidKeys[0];
-    setOpenByKey((previous) => {
-      if (previous[firstInvalidKey]) {
-        return previous;
-      }
-      return {
-        ...previous,
-        [firstInvalidKey]: true,
-      };
-    });
-  }, [attemptedSubmit, invalidKeys]);
-
   const directionOptions = useMemo(
     () => [
       ...agents.map((agent) => ({
@@ -278,8 +212,8 @@ export function FrictionInboxCard({
         <div>
           <p className="friction-inbox-title">Phase 1 — Choose the disagreement path</p>
           <p className="friction-inbox-subtitle">
-            {resolvedCount}/{totalCount} top disagreements resolved
-            {hiddenCount > 0 ? ` · ${hiddenCount} lower-priority point${hiddenCount > 1 ? "s" : ""} hidden` : ""}
+            {resolvedCount}/{totalCount} strategic disagreements resolved
+            {hiddenCount > 0 ? ` · ${hiddenCount} minor points hidden` : ""}
           </p>
         </div>
         <span className={`friction-inbox-progress ${canRun ? "is-ready" : ""}`}>
@@ -288,9 +222,9 @@ export function FrictionInboxCard({
       </header>
 
       <div className="friction-inbox-direction">
-        <p className="friction-inbox-direction-label">Direction override (optional)</p>
+        <p className="friction-inbox-direction-label">Who do you side with? (optional override)</p>
         <p className="text-xs text-friction-muted">
-          Use this as a default, then adjust only the exceptions below.
+          Apply a default direction for all friction points, then adjust exceptions below.
         </p>
         <div className="friction-inbox-direction-buttons" role="radiogroup" aria-label="Direction override">
           {directionOptions.map((option) => (
@@ -332,7 +266,7 @@ export function FrictionInboxCard({
       </div>
 
       <label className="friction-rationale">
-        <span>Context note (optional)</span>
+        <span>Strategic context (optional)</span>
         <textarea
           value={localContextNote}
           rows={3}
@@ -341,7 +275,7 @@ export function FrictionInboxCard({
             setLocalContextNote(value);
             onContextNoteChange(value);
           }}
-          placeholder="Capture hard constraints, team reality, or one sentence about what matters most."
+          placeholder="Clarify the vision, team constraints, or business logic. (e.g. 'Always prioritize scale over short-term speed.')"
         />
       </label>
 
@@ -350,140 +284,98 @@ export function FrictionInboxCard({
           No high-priority disagreement detected. You can generate the brief directly.
         </p>
       ) : (
-        <div className="friction-inbox-list">
-          {rows.map((row) => {
-            const isOpen = openByKey[row.key] ?? !row.resolved;
-            const invalid = attemptedSubmit && !row.resolved;
-            const isAdvancedOpen = advancedOpenByKey[row.key] ?? false;
-            return (
-              <section
-                key={row.key}
-                className={["friction-row", invalid ? "is-invalid" : ""].join(" ")}
-              >
-                <button
-                  type="button"
-                  className="friction-row-summary w-full border-0 bg-transparent text-left"
-                  onClick={() =>
-                    setOpenByKey((previous) => ({
-                      ...previous,
-                      [row.key]: !isOpen,
-                    }))
-                  }
-                  aria-expanded={isOpen}
-                >
-                  <div className="friction-row-main">
-                    <p className="friction-row-title">
-                      {row.rank + 1}. {row.field}
-                    </p>
-                    <div className="friction-row-agent-snippets">
-                      {agents.map((agent, agentIndex) => (
-                        <p key={agent.id} className="friction-row-agent-line">
-                          <span className="friction-row-agent-label">{agent.label}</span>
-                          <span className="friction-row-agent-text">
-                            {pickAgentSnippet(row.divergence, agent, agentIndex)}
-                          </span>
+        <div className="friction-inbox-list mt-2">
+          <button
+            type="button"
+            className="w-full text-left py-2 px-3 text-[13px] font-medium text-friction-text flex items-center justify-between border rounded-lg border-friction-border bg-friction-surface-alt transition-colors hover:bg-friction-surface"
+            onClick={() => setShowAdvanced((prev) => !prev)}
+          >
+            <span>Advanced Adjustments ({rows.length} friction points)</span>
+            <ChevronRight
+              className={`h-4 w-4 text-friction-muted transition-transform ${showAdvanced ? "rotate-90" : ""}`}
+            />
+          </button>
+          {showAdvanced ? (
+            <div className="mt-3 grid gap-3 pl-2 border-l-2 border-friction-border ml-1">
+              {rows.map((row) => {
+                const isOpen = openByKey[row.key] ?? false;
+                const invalid = attemptedSubmit && !row.resolved;
+                return (
+                  <section key={row.key} className={["friction-row", invalid ? "is-invalid" : ""].join(" ")}>
+                    <button
+                      type="button"
+                      className="friction-row-summary w-full border-0 bg-transparent text-left"
+                      onClick={() =>
+                        setOpenByKey((previous) => ({
+                          ...previous,
+                          [row.key]: !isOpen,
+                        }))
+                      }
+                      aria-expanded={isOpen}
+                    >
+                      <div className="friction-row-main">
+                        <p className="friction-row-title">
+                          {row.rank + 1}. {row.field}
                         </p>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="friction-row-meta">
-                    <span className={`friction-severity severity-${row.severity}`}>
-                      {severityLabel(row.severity)}
-                    </span>
-                    <span className={`friction-row-status ${row.resolved ? "is-resolved" : ""}`}>
-                      {row.resolved ? "Resolved" : "Unresolved"}
-                    </span>
-                    <ChevronRight
-                      className={`friction-row-chevron h-4 w-4 ${isOpen ? "is-open" : ""}`}
-                      aria-hidden="true"
-                    />
-                  </div>
-                </button>
+                        <div className="friction-row-agent-snippets">
+                          {agents.map((agent, agentIndex) => (
+                            <p key={agent.id} className="friction-row-agent-line">
+                              <span className="friction-row-agent-label">{agent.label}</span>
+                              <span className="friction-row-agent-text">
+                                {pickAgentSnippet(row.divergence, agent, agentIndex)}
+                              </span>
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="friction-row-meta">
+                        <span className={`friction-severity severity-${row.severity}`}>
+                          {severityLabel(row.severity)}
+                        </span>
+                        <span className={`friction-row-status ${row.resolved ? "is-resolved" : ""}`}>
+                          {row.resolved ? "Resolved" : "Unresolved"}
+                        </span>
+                        <ChevronRight
+                          className={`friction-row-chevron h-4 w-4 ${isOpen ? "is-open" : ""}`}
+                          aria-hidden="true"
+                        />
+                      </div>
+                    </button>
 
-                {isOpen ? (
-                  <div className="friction-row-content">
-                    <div className="friction-choice-group" role="radiogroup" aria-label={`Choice for ${row.field}`}>
-                      {rowChoiceOptions.map((choiceOption) => (
-                        <button
-                          key={choiceOption.value}
-                          type="button"
-                          className={[
-                            "friction-choice-pill",
-                            row.choice === choiceOption.value ? "is-active" : "",
-                          ].join(" ")}
-                          onClick={() => {
-                            setLocalResolutions((previous) => ({
-                              ...previous,
-                              [row.key]: {
-                                choice: choiceOption.value,
-                                rationale:
-                                  previous[row.key]?.rationale ?? row.rationale,
-                              },
-                            }));
-                            onResolutionChange(row.key, { choice: choiceOption.value });
-                          }}
-                          aria-pressed={row.choice === choiceOption.value}
-                        >
-                          {choiceOption.label}
-                        </button>
-                      ))}
-                    </div>
-
-                    <label className="friction-rationale">
-                      <span>Optional note</span>
-                      <textarea
-                        value={row.rationale}
-                        rows={2}
-                        onChange={(event) => {
-                          const rationale = event.target.value;
-                          setLocalResolutions((previous) => ({
-                            ...previous,
-                            [row.key]: {
-                              choice: previous[row.key]?.choice ?? row.choice,
-                              rationale,
-                            },
-                          }));
-                          onResolutionChange(row.key, { rationale });
-                        }}
-                        placeholder="Add context only if the default brief would miss something important."
-                        aria-invalid={invalid}
-                      />
-                      <span className="is-valid">Skip unless the choice needs extra context.</span>
-                    </label>
-
-                    <section className="friction-advanced-drawer">
-                      <button
-                        type="button"
-                        className="friction-advanced-toggle"
-                        onClick={() =>
-                          setAdvancedOpenByKey((previous) => ({
-                            ...previous,
-                            [row.key]: !isAdvancedOpen,
-                          }))
-                        }
-                        aria-expanded={isAdvancedOpen}
-                      >
-                        Advanced evidence
-                      </button>
-                      {isAdvancedOpen ? (
-                        <>
-                          <div className="friction-advanced-grid">
-                            {agents.map((agent, agentIndex) => (
-                              <section key={agent.id}>
-                                <p>{agent.label}</p>
-                                <p>{pickAgentSnippet(row.divergence, agent, agentIndex)}</p>
-                              </section>
-                            ))}
-                          </div>
-                          <pre>{JSON.stringify(row.divergence, null, 2)}</pre>
-                        </>
-                      ) : null}
-                    </section>
-                  </div>
-                ) : null}
-              </section>
-            );
-          })}
+                    {isOpen ? (
+                      <div className="friction-row-content">
+                        <div className="friction-choice-group" role="radiogroup" aria-label={`Choice for ${row.field}`}>
+                          {rowChoiceOptions.map((choiceOption) => (
+                            <button
+                              key={choiceOption.value}
+                              type="button"
+                              className={[
+                                "friction-choice-pill",
+                                row.choice === choiceOption.value ? "is-active" : "",
+                              ].join(" ")}
+                              onClick={() => {
+                                setLocalResolutions((previous) => ({
+                                  ...previous,
+                                  [row.key]: {
+                                    choice: choiceOption.value,
+                                    rationale: previous[row.key]?.rationale ?? row.rationale,
+                                  },
+                                }));
+                                onResolutionChange(row.key, { choice: choiceOption.value });
+                              }}
+                              aria-pressed={row.choice === choiceOption.value}
+                            >
+                              {choiceOption.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </section>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
       )}
 

@@ -55,15 +55,17 @@ const CLI_PROVIDER_SLUG: Record<AgentCli, string> = {
 
 // Judge provider → logo slug
 const JUDGE_PROVIDER_SLUG: Record<string, string> = {
-  haiku: "anthropic",
-  flash: "google",
-  ollama: "lmstudio",
+  claude: "anthropic",
+  gemini: "google",
+  codex: "openai",
+  opencode: "opencode"
 };
 
 const JUDGE_PROVIDER_LABEL: Record<string, string> = {
-  haiku: "Haiku",
-  flash: "Flash",
-  ollama: "Ollama",
+  claude: "Claude Code",
+  gemini: "Gemini CLI",
+  codex: "Codex CLI",
+  opencode: "OpenCode",
 };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -163,6 +165,14 @@ export function WorkflowPromptInput({
   const [judgeSelectorOpen, setJudgeSelectorOpen] = useState(false);
   const [customModelDraft, setCustomModelDraft] = useState("");
   const [customTargetCli, setCustomTargetCli] = useState<AgentCli>("opencode");
+  const [judgeCustomModelDraft, setJudgeCustomModelDraft] = useState("");
+  const [judgeCustomTargetCli, setJudgeCustomTargetCli] = useState<AgentCli>("claude");
+
+  useEffect(() => {
+    if (!judgeSelectorOpen) return;
+    setJudgeCustomModelDraft(judgeModel || "");
+    setJudgeCustomTargetCli((judgeProvider as AgentCli) || "claude");
+  }, [judgeSelectorOpen, judgeModel, judgeProvider]);
 
   const phase3Scope = isPhase3WorkflowStep(workflowStep);
   const displayAgents = useMemo<DisplayAgent[]>(() => {
@@ -195,11 +205,11 @@ export function WorkflowPromptInput({
 
   // Load model inventory whenever selector opens
   useEffect(() => {
-    if (!modelSelectorOpen) return;
+    if (!modelSelectorOpen && !judgeSelectorOpen) return;
     const aliases = CLI_ALIAS_ORDER.filter((alias) => !cliModelInventoryLoading[alias]);
     if (aliases.length === 0) return;
     void Promise.resolve(onRequestCliModelInventory(aliases));
-  }, [modelSelectorOpen, cliModelInventoryLoading, onRequestCliModelInventory]);
+  }, [modelSelectorOpen, judgeSelectorOpen, cliModelInventoryLoading, onRequestCliModelInventory]);
 
   const activeResolvedModel = activeAgent
     ? (agentCliModels[activeAgent.id] ?? "").trim() ||
@@ -426,69 +436,133 @@ export function WorkflowPromptInput({
                   Select Judge AI
                 </p>
                 <p className="mt-0.5 text-xs text-friction-muted">
-                  Current: <span className="font-medium text-friction-text">{judgeModel || JUDGE_PROVIDER_LABEL[judgeProvider || ""] || "default"}</span>
+                  Current: <span className="font-medium text-friction-text">{shortModelName(judgeModel || "") || JUDGE_PROVIDER_LABEL[judgeProvider || ""] || "default"}</span>
                 </p>
               </div>
             </div>
           </div>
 
+          <ModelSelectorInput placeholder="Search models…" />
+
           <ModelSelectorList>
-            <ModelSelectorGroup heading="Recommended Evaluate Models">
-              {/* Haiku */}
-              <ModelSelectorItem
-                value="anthropic::claude-3-5-haiku-20241022"
-                onSelect={() => {
-                  onJudgeProviderChange?.("haiku");
-                  onJudgeModelChange?.("claude-3-5-haiku-20241022");
-                  setJudgeSelectorOpen(false);
-                }}
-              >
-                <ModelSelectorLogo provider="anthropic" />
-                <ModelSelectorName>Claude 3.5 Haiku</ModelSelectorName>
-                {judgeModel === "claude-3-5-haiku-20241022" || judgeProvider === "haiku" ? (
-                  <CheckIcon className="ml-auto size-4 text-friction-text" />
-                ) : (
-                  <div className="ml-auto size-4" />
-                )}
-              </ModelSelectorItem>
+            <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
+            {cliGroups.map((group) => (
+              <ModelSelectorGroup heading={groupHeading(group)} key={`judge-${group.alias}`}>
+                <ModelSelectorItem
+                  key={`judge-${group.alias}-default`}
+                  value={`judge::${group.alias}::__default__`}
+                  onSelect={() => {
+                    onJudgeProviderChange?.(group.alias);
+                    onJudgeModelChange?.("");
+                    setJudgeSelectorOpen(false);
+                  }}
+                >
+                  <ModelSelectorLogo provider={group.providerSlug} />
+                  <ModelSelectorName>{group.label} — default</ModelSelectorName>
+                  {judgeProvider === group.alias && !judgeModel ? (
+                    <CheckIcon className="ml-auto size-4 text-friction-text" />
+                  ) : (
+                    <div className="ml-auto size-4" />
+                  )}
+                </ModelSelectorItem>
 
-              {/* Flash */}
-              <ModelSelectorItem
-                value="google::gemini-2.5-flash"
-                onSelect={() => {
-                  onJudgeProviderChange?.("flash");
-                  onJudgeModelChange?.("gemini-2.5-flash");
-                  setJudgeSelectorOpen(false);
-                }}
-              >
-                <ModelSelectorLogo provider="google" />
-                <ModelSelectorName>Gemini 2.5 Flash</ModelSelectorName>
-                {judgeModel === "gemini-2.5-flash" || judgeProvider === "flash" ? (
-                  <CheckIcon className="ml-auto size-4 text-friction-text" />
-                ) : (
-                  <div className="ml-auto size-4" />
-                )}
-              </ModelSelectorItem>
+                {!cliModelInventoryLoaded[group.alias] ? (
+                  <ModelSelectorItem
+                    key={`judge-${group.alias}:__loading__`}
+                    value={`judge-${group.alias}:__loading__`}
+                    disabled
+                  >
+                    <span className="text-friction-muted text-xs">
+                      Loading live models…
+                    </span>
+                  </ModelSelectorItem>
+                ) : null}
 
-              {/* Ollama */}
-              <ModelSelectorItem
-                value="ollama::llama3.2"
-                onSelect={() => {
-                  onJudgeProviderChange?.("ollama");
-                  onJudgeModelChange?.("llama3.2");
-                  setJudgeSelectorOpen(false);
-                }}
-              >
-                <ModelSelectorLogo provider="lmstudio" />
-                <ModelSelectorName>Llama 3.2 (Ollama)</ModelSelectorName>
-                {judgeModel === "llama3.2" || judgeProvider === "ollama" ? (
-                  <CheckIcon className="ml-auto size-4 text-friction-text" />
-                ) : (
-                  <div className="ml-auto size-4" />
-                )}
-              </ModelSelectorItem>
-            </ModelSelectorGroup>
+                {cliModelInventoryLoaded[group.alias]
+                  ? group.options.map((model) => (
+                    <ModelSelectorItem
+                      key={`judge-${group.alias}:${model.id}`}
+                      value={`judge-${group.alias}:${model.id}`}
+                      onSelect={() => {
+                        onJudgeProviderChange?.(group.alias);
+                        onJudgeModelChange?.(model.id);
+                        setJudgeSelectorOpen(false);
+                      }}
+                    >
+                      <ModelSelectorLogo provider={group.providerSlug} />
+                      <ModelSelectorName>{model.name}</ModelSelectorName>
+                      <ModelSelectorLogoGroup>
+                        {(model.providers ?? [group.providerSlug]).map((p) => (
+                          <ModelSelectorLogo
+                            key={`judge-${group.alias}:${model.id}:${p}`}
+                            provider={p}
+                          />
+                        ))}
+                      </ModelSelectorLogoGroup>
+                      {judgeProvider === group.alias && judgeModel === model.id ? (
+                        <CheckIcon className="ml-auto size-4 text-friction-text" />
+                      ) : (
+                        <div className="ml-auto size-4" />
+                      )}
+                    </ModelSelectorItem>
+                  ))
+                  : null}
+              </ModelSelectorGroup>
+            ))}
           </ModelSelectorList>
+
+          {cliGroups.some(
+            (g) => cliModelInventoryLoaded[g.alias] && g.source === "fallback" && g.reason,
+          ) ? (
+            <div className="workflow-model-selector-reasons">
+              {cliGroups
+                .filter(
+                  (g) =>
+                    cliModelInventoryLoaded[g.alias] &&
+                    g.source === "fallback" &&
+                    g.reason,
+                )
+                .map((g) => (
+                  <p key={`judge-reason:${g.alias}`} className="text-[11px] text-friction-muted">
+                    {g.label}: {g.reason}
+                  </p>
+                ))}
+            </div>
+          ) : null}
+
+          <div className="workflow-model-selector-custom">
+            <select
+              value={judgeCustomTargetCli}
+              onChange={(e) => setJudgeCustomTargetCli(e.target.value as AgentCli)}
+              className="workflow-model-selector-custom-target"
+            >
+              <option value="opencode">OpenCode</option>
+              <option value="claude">Claude Code</option>
+              <option value="codex">Codex</option>
+              <option value="gemini">Gemini</option>
+            </select>
+            <input
+              value={judgeCustomModelDraft}
+              onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                setJudgeCustomModelDraft(e.target.value)
+              }
+              placeholder="Custom model id…"
+              className="workflow-model-selector-custom-input"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <button
+              type="button"
+              className="workflow-model-selector-custom-apply"
+              onClick={() => {
+                onJudgeProviderChange?.(judgeCustomTargetCli);
+                onJudgeModelChange?.(judgeCustomModelDraft);
+                setJudgeSelectorOpen(false);
+              }}
+            >
+              Apply
+            </button>
+          </div>
         </ModelSelectorContent>
       </ModelSelector>
 

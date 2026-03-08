@@ -173,6 +173,19 @@ pub fn load_session(id: &str) -> Result<Option<SessionRecord>, String> {
     }
 }
 
+pub fn delete_session(id: &str) -> Result<(), String> {
+    let connection = open_connection()?;
+    let affected = connection
+        .execute("DELETE FROM sessions WHERE id = ?1", params![id])
+        .map_err(|err| format!("failed to delete session: {err}"))?;
+
+    if affected == 0 {
+        return Err(format!("session {id} not found"));
+    }
+
+    Ok(())
+}
+
 pub fn export_consented_dataset(
     target_path: Option<String>,
 ) -> Result<DatasetExportResult, String> {
